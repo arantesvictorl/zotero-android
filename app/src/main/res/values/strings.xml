@@ -103,4 +103,38 @@
     <string name="pdf_settings_letter_spacing_title">Letter spacing</string>
     <string name="pdf_settings_page_width_title">Page width</string>
 
+    <!-- PDF translate (port of zotero-pdf-translate) -->
+    <string name="translate_action">Translate</string>
+    <string name="translate_title">Translation</string>
+    <string name="translate_copy">Copy</string>
+    <string name="translate_retry">Try again</string>
+    <string name="translate_highlight_with_translation">Highlight + translation</string>
+    <string name="translate_underline_with_translation">Underline + translation</string>
+    <string name="translate_language_auto">Detect language</string>
+    <string name="translate_service_google">Google Translate (free)</string>
+    <string name="translate_service_deepl">DeepL</string>
+    <string name="translate_service_openai">LLM (OpenAI-compatible API)</string>
+    <string name="translate_error_missing_api_key">No API key configured. Add one in Settings → Translation.</string>
+    <string name="translate_error_empty_text">There is no text to translate.</string>
+    <string name="translate_error_empty_response">The translation service returned an empty or unexpected response.</string>
+    <string name="translate_error_http">The translation service returned an error (%1$d): %2$s</string>
+    <string name="translate_error_network">Could not reach the translation service: %1$s</string>
+    <string name="translate_settings_title">Translation</string>
+    <string name="translate_settings_service">Translation service</string>
+    <string name="translate_settings_languages">Languages</string>
+    <string name="translate_settings_source_language">Translate from</string>
+    <string name="translate_settings_target_language">Translate to</string>
+    <string name="translate_settings_api_key">API key</string>
+    <string name="translate_settings_base_url">API base URL</string>
+    <string name="translate_settings_model">Model</string>
+    <string name="translate_settings_prompt">Prompt</string>
+    <string name="translate_settings_reset_prompt">Restore default prompt</string>
+    <string name="translate_settings_google_hint">Uses the public Google Translate endpoint. No account or key is needed, but requests may be rate limited.</string>
+    <string name="translate_settings_deepl_hint">Get a key at deepl.com/pro-api. Both Free (ending in “:fx”) and Pro keys are supported.</string>
+    <string name="translate_settings_openai_hint">Works with OpenAI, OpenRouter, Ollama, LM Studio and any other server implementing the /chat/completions endpoint. Placeholders: {sourceLanguage}, {targetLanguage}, {text}.</string>
+    <string name="translate_settings_add_to_comment">Add translation to comment when creating a highlight or underline</string>
+    <string name="translate_settings_clean_up_text">Join lines and hyphenated words before translating</string>
+    <string name="translate_settings_test">Test translation</string>
+    <string name="translate_settings_test_sample">The quick brown fox jumps over the lazy dog.</string>
+
 </resources>

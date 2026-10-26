@@ -6,6 +6,7 @@ import androidx.core.content.edit
 import org.zotero.android.database.objects.AnnotationsConfig
 import org.zotero.android.files.DataMarshaller
 import org.zotero.android.pdf.data.PDFSettings
+import org.zotero.android.pdftranslate.data.TranslateSettings
 import org.zotero.android.screens.allitems.data.ItemsSortType
 import org.zotero.android.screens.citbibexport.data.CitBibExportOutputMethod
 import org.zotero.android.screens.citbibexport.data.CitBibExportOutputMode
@@ -56,6 +57,7 @@ open class Defaults @Inject constructor(
     private val exportLocaleId = "exportLocaleId"
     private val quickCopyAsHtml = "quickCopyAsHtml"
     private val readerSettings = "readerSettings1"
+    private val translateSettings = "translateSettings"
 
     private val exportOutputMode = "exportOutputMode"
     private val exportOutputMethod = "exportOutputMethod"
@@ -580,6 +582,36 @@ open class Defaults @Inject constructor(
     ) {
         val json = dataMarshaller.marshal(readerSettings)
         sharedPreferences.edit { putString(this@Defaults.readerSettings, json) }
+    }
+
+    @Suppress("USELESS_ELVIS")
+    fun getTranslateSettings(): TranslateSettings {
+        val json: String = sharedPreferences.getString(
+            this.translateSettings,
+            null
+        ) ?: return TranslateSettings()
+        return try {
+            // Gson bypasses Kotlin defaults, so fields added in later versions may come back as null.
+            val stored = dataMarshaller.unmarshal<TranslateSettings>(json)
+            val default = TranslateSettings()
+            stored.copy(
+                service = stored.service ?: default.service,
+                sourceLanguage = stored.sourceLanguage ?: default.sourceLanguage,
+                targetLanguage = stored.targetLanguage ?: default.targetLanguage,
+                deeplApiKey = stored.deeplApiKey ?: default.deeplApiKey,
+                openAiApiKey = stored.openAiApiKey ?: default.openAiApiKey,
+                openAiBaseUrl = stored.openAiBaseUrl ?: default.openAiBaseUrl,
+                openAiModel = stored.openAiModel ?: default.openAiModel,
+                openAiPrompt = stored.openAiPrompt ?: default.openAiPrompt,
+            )
+        } catch (e: Exception) {
+            TranslateSettings()
+        }
+    }
+
+    fun setTranslateSettings(settings: TranslateSettings) {
+        val json = dataMarshaller.marshal(settings)
+        sharedPreferences.edit { putString(this@Defaults.translateSettings, json) }
     }
 
     fun reset() {

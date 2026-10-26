@@ -13,6 +13,7 @@ import org.zotero.android.uicomponents.Strings
 
 private const val MENU_ITEM_ID_HIGHLIGHT = Menu.FIRST + 1000
 private const val MENU_ITEM_ID_UNDERLINE = Menu.FIRST + 1001
+private const val MENU_ITEM_ID_TRANSLATE = Menu.FIRST + 1002
 
 class ReaderWevViewSelectActionModeCallback(
     private val context: Context,
@@ -67,9 +68,18 @@ class ReaderWevViewSelectActionModeCallback(
             Menu.NONE,
             context.getString(Strings.pdf_underline)
         )
+        menu.add(
+            Menu.NONE,
+            MENU_ITEM_ID_TRANSLATE,
+            Menu.NONE,
+            context.getString(Strings.translate_action)
+        )
 
         for (item in menuItems) {
-            if (item.itemId != MENU_ITEM_ID_HIGHLIGHT && item.itemId != MENU_ITEM_ID_UNDERLINE) {
+            if (item.itemId != MENU_ITEM_ID_HIGHLIGHT &&
+                item.itemId != MENU_ITEM_ID_UNDERLINE &&
+                item.itemId != MENU_ITEM_ID_TRANSLATE
+            ) {
                 menu.add(item.groupId, item.itemId, orderIndex++, item.title).intent = item.intent
             }
         }
@@ -87,6 +97,12 @@ class ReaderWevViewSelectActionModeCallback(
 
             MENU_ITEM_ID_UNDERLINE -> {
                 delegate()?.onUnderline()
+                mode.finish()
+                true
+            }
+
+            MENU_ITEM_ID_TRANSLATE -> {
+                delegate()?.onTranslate()
                 mode.finish()
                 true
             }

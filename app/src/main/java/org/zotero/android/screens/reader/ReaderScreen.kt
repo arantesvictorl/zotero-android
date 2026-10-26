@@ -48,6 +48,7 @@ import org.zotero.android.screens.reader.sidebar.annotations.ReaderAnnotationsVi
 import org.zotero.android.screens.reader.sidebar.thumbnails.ReaderThumbnailsViewModel
 import org.zotero.android.screens.reader.topbar.ReaderSearchTopBar
 import org.zotero.android.screens.reader.topbar.ReaderTopBar
+import org.zotero.android.screens.reader.translate.ReaderTranslationView
 import org.zotero.android.uicomponents.CustomScaffoldM3
 import org.zotero.android.uicomponents.theme.CustomTheme
 import org.zotero.android.uicomponents.themem3.AppThemeM3
@@ -282,6 +283,7 @@ internal fun ReaderScreen(
         ReaderSettingsView(viewState = viewState, viewModel = viewModel)
         ReaderColorPickerView(viewState = viewState, viewModel = viewModel)
         ReaderFilterView(viewState = viewState, viewModel = viewModel)
+        ReaderTranslationView(viewState = viewState, viewModel = viewModel)
 
         if (viewState.isReaderLoading) {
             Box(Modifier.fillMaxSize()) {
