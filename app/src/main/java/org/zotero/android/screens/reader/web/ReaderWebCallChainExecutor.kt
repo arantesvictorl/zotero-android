@@ -586,12 +586,20 @@ class ReaderWebCallChainExecutor @Inject constructor(
 
         val toJson = encodeAsJSONForJavascript(this.gson, createReaderViewOptions)
         val javascript = "javascript:createView('${toJson}');"
-        return suspendCancellableCoroutine { cont ->
+        suspendCancellableCoroutine { cont ->
             readerWebViewHandler.evaluateJavascript(javascript) {
                 cont.resume(Unit)
             }
         }
+        setSelectionColumnGuard(enabled = !defaults.getTranslateSettings().allowCrossColumnSelection)
+    }
 
+    private suspend fun setSelectionColumnGuard(enabled: Boolean) {
+        return suspendCancellableCoroutine { cont ->
+            readerWebViewHandler.evaluateJavascript(ReaderSelectionColumnGuard.script(enabled)) {
+                cont.resume(Unit)
+            }
+        }
     }
 
     suspend fun updateInterface(isDark: Boolean) {

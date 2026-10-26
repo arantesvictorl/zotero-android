@@ -154,4 +154,7 @@
     <string name="llm_actions_new_name">New action</string>
     <string name="llm_actions_context_length">Context size (characters)</string>
     <string name="llm_actions_context_length_hint">How much of the text around the selection is sent to the model, about ¾ before and ¼ after it. For PDFs it is taken from the current, previous and next pages. Larger values give better answers but cost more tokens.</string>
+    <string name="selection_settings_title">Text selection</string>
+    <string name="selection_settings_lock_column">Keep PDF selections within one column</string>
+    <string name="selection_settings_lock_column_hint">On two-column papers, prevents the selection from jumping to the other column while you drag the selection handles. Text spanning the whole page width (titles, abstracts) is not affected. Turn it off to select across columns. Applies the next time a document is opened.</string>
 </resources>

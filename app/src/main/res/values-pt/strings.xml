@@ -50,4 +50,7 @@
     <string name="llm_actions_new_name">Nova ação</string>
     <string name="llm_actions_context_length">Tamanho do contexto (caracteres)</string>
     <string name="llm_actions_context_length_hint">Quanto do texto ao redor da seleção é enviado ao modelo, cerca de ¾ antes e ¼ depois. Em PDFs, ele vem da página atual, da anterior e da seguinte. Valores maiores dão respostas melhores, mas gastam mais tokens.</string>
+    <string name="selection_settings_title">Seleção de texto</string>
+    <string name="selection_settings_lock_column">Manter a seleção do PDF em uma só coluna</string>
+    <string name="selection_settings_lock_column_hint">Em artigos com duas colunas, impede que a seleção pule para a outra coluna enquanto você arrasta as alças. Textos com a largura da página inteira (título, resumo) não são afetados. Desligue para selecionar atravessando colunas. Vale a partir da próxima vez que um documento for aberto.</string>
 </resources>

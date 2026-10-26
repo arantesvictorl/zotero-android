@@ -234,6 +234,15 @@ private fun SettingsTranslateContent(
     )
 
     NewSettingsDivider()
+    NewSettingsSectionTitle(titleId = Strings.selection_settings_title)
+    SettingsQuickCopySwitchItem(
+        title = stringResource(Strings.selection_settings_lock_column),
+        isChecked = !settings.allowCrossColumnSelection,
+        onCheckedChange = viewModel::onLockSelectionToColumnChanged,
+    )
+    HintText(stringResource(Strings.selection_settings_lock_column_hint))
+
+    NewSettingsDivider()
     val sampleText = stringResource(Strings.translate_settings_test_sample)
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
