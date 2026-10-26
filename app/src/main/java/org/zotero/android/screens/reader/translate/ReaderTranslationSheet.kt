@@ -25,7 +25,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -68,7 +68,7 @@ internal fun ReaderTranslationView(
         onRetry = viewModel::retryTranslation,
         onCopy = viewModel::copyTranslation,
         onCreateAnnotation = viewModel::createAnnotationWithTranslation,
-        onModeSelected = viewModel::onAssistModeSelected,
+        onTabSelected = viewModel::onAssistTabSelected,
     )
 }
 
@@ -81,7 +81,7 @@ private fun ReaderTranslationSheet(
     onRetry: () -> Unit,
     onCopy: () -> Unit,
     onCreateAnnotation: (AnnotationType) -> Unit,
-    onModeSelected: (ReaderAssistMode) -> Unit,
+    onTabSelected: (String) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     ModalBottomSheet(
@@ -97,21 +97,21 @@ private fun ReaderTranslationSheet(
                 .padding(bottom = 16.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                PrimaryTabRow(
+                val tabs = listOf(ReaderTranslationState.TRANSLATE_TAB to stringResource(Strings.translate_action)) +
+                        state.actions.map { it.id to it.name }
+                PrimaryScrollableTabRow(
                     modifier = Modifier.weight(1f),
-                    selectedTabIndex = state.mode.ordinal,
+                    selectedTabIndex = tabs.indexOfFirst { it.first == state.selectedTab }.coerceAtLeast(0),
                     containerColor = Color.Transparent,
+                    edgePadding = 0.dp,
                 ) {
-                    Tab(
-                        selected = state.mode == ReaderAssistMode.translate,
-                        onClick = { onModeSelected(ReaderAssistMode.translate) },
-                        text = { Text(stringResource(Strings.translate_action)) },
-                    )
-                    Tab(
-                        selected = state.mode == ReaderAssistMode.explain,
-                        onClick = { onModeSelected(ReaderAssistMode.explain) },
-                        text = { Text(stringResource(Strings.explain_action)) },
-                    )
+                    tabs.forEach { (id, name) ->
+                        Tab(
+                            selected = state.selectedTab == id,
+                            onClick = { onTabSelected(id) },
+                            text = { Text(text = name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        )
+                    }
                 }
                 TargetLanguagePicker(
                     selected = state.targetLanguage,
@@ -120,9 +120,10 @@ private fun ReaderTranslationSheet(
             }
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = when (state.mode) {
-                    ReaderAssistMode.translate -> serviceName(state.service)
-                    ReaderAssistMode.explain -> stringResource(Strings.explain_service_label)
+                text = when {
+                    state.isTranslateTab -> serviceName(state.service)
+                    state.selectedAction?.useContext == true -> stringResource(Strings.llm_action_label_with_context)
+                    else -> stringResource(Strings.llm_action_label)
                 },
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -144,7 +145,7 @@ private fun ReaderTranslationSheet(
                     )
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-                AssistContent(mode = state.mode, result = state.current, onRetry = onRetry)
+                AssistContent(isTranslation = state.isTranslateTab, result = state.current, onRetry = onRetry)
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -164,10 +165,10 @@ private fun ReaderTranslationSheet(
                     ) {
                         Text(
                             stringResource(
-                                if (state.mode == ReaderAssistMode.translate) {
+                                if (state.isTranslateTab) {
                                     Strings.translate_underline_with_translation
                                 } else {
-                                    Strings.explain_underline_with_explanation
+                                    Strings.llm_action_underline_with_result
                                 }
                             )
                         )
@@ -178,10 +179,10 @@ private fun ReaderTranslationSheet(
                     ) {
                         Text(
                             stringResource(
-                                if (state.mode == ReaderAssistMode.translate) {
+                                if (state.isTranslateTab) {
                                     Strings.translate_highlight_with_translation
                                 } else {
-                                    Strings.explain_highlight_with_explanation
+                                    Strings.llm_action_highlight_with_result
                                 }
                             )
                         )
@@ -193,7 +194,7 @@ private fun ReaderTranslationSheet(
 }
 
 @Composable
-private fun AssistContent(mode: ReaderAssistMode, result: ReaderAssistResult, onRetry: () -> Unit) {
+private fun AssistContent(isTranslation: Boolean, result: ReaderAssistResult, onRetry: () -> Unit) {
     val error = result.error
     val text = result.text
     when {
@@ -205,10 +206,10 @@ private fun AssistContent(mode: ReaderAssistMode, result: ReaderAssistResult, on
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 2.dp)
-                if (mode == ReaderAssistMode.explain) {
+                if (!isTranslation) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = stringResource(Strings.explain_loading),
+                        text = stringResource(Strings.llm_action_loading),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -232,7 +233,7 @@ private fun AssistContent(mode: ReaderAssistMode, result: ReaderAssistResult, on
         text != null -> {
             SelectionContainer {
                 Text(
-                    text = if (mode == ReaderAssistMode.explain) simpleMarkdown(text) else AnnotatedString(text),
+                    text = if (isTranslation) AnnotatedString(text) else simpleMarkdown(text),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                 )

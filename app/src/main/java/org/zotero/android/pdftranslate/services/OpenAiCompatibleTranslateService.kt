@@ -7,6 +7,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.zotero.android.pdftranslate.data.LlmAction
 import org.zotero.android.pdftranslate.data.TranslateError
 import org.zotero.android.pdftranslate.data.TranslateLanguage
 import org.zotero.android.pdftranslate.data.TranslateResult
@@ -42,19 +43,20 @@ class OpenAiCompatibleTranslateService(private val client: OkHttpClient) : Trans
     }
 
     /**
-     * Explains [text] using the surrounding text of the document as context.
+     * Runs a user defined [action] on [text], using the surrounding text of the document as context.
      */
-    fun explain(
+    fun runAction(
+        action: LlmAction,
         text: String,
         contextBefore: String,
         contextAfter: String,
         title: String,
         settings: TranslateSettings,
     ): String {
-        val promptTemplate = settings.explainPrompt.ifBlank { TranslateSettings.DEFAULT_EXPLAIN_PROMPT }
         val prompt = fillTemplate(
-            template = withTextPlaceholder(promptTemplate),
+            template = withTextPlaceholder(action.prompt.ifBlank { LlmAction.NEW_ACTION_PROMPT }),
             values = mapOf(
+                TranslateSettings.PLACEHOLDER_SOURCE_LANGUAGE to TranslateLanguage.englishName(settings.sourceLanguage),
                 TranslateSettings.PLACEHOLDER_TARGET_LANGUAGE to TranslateLanguage.englishName(settings.targetLanguage),
                 TranslateSettings.PLACEHOLDER_TITLE to title.ifBlank { "unknown" },
                 TranslateSettings.PLACEHOLDER_CONTEXT_BEFORE to contextBefore,

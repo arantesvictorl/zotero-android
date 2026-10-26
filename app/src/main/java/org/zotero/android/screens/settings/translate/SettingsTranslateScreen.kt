@@ -1,6 +1,7 @@
 package org.zotero.android.screens.settings.translate
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +22,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
@@ -30,6 +32,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +45,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import org.zotero.android.pdftranslate.data.LlmAction
 import org.zotero.android.pdftranslate.data.TranslateLanguage
 import org.zotero.android.pdftranslate.data.TranslateServiceType
 import org.zotero.android.screens.reader.translate.errorMessage
@@ -171,26 +175,34 @@ private fun SettingsTranslateContent(
     )
 
     NewSettingsDivider()
-    NewSettingsSectionTitle(titleId = Strings.explain_settings_title)
-    SettingsTextField(
-        label = stringResource(Strings.explain_settings_context_length),
-        value = viewState.explainContextLengthText,
-        onValueChange = viewModel::onExplainContextLengthChanged,
-        keyboardType = KeyboardType.Number,
-    )
-    HintText(stringResource(Strings.explain_settings_context_length_hint))
-    SettingsTextField(
-        label = stringResource(Strings.explain_settings_prompt),
-        value = settings.explainPrompt,
-        onValueChange = viewModel::onExplainPromptChanged,
-        singleLine = false,
-    )
-    Row(modifier = Modifier.padding(horizontal = 8.dp)) {
-        TextButton(onClick = viewModel::onResetExplainPrompt) {
-            Text(stringResource(Strings.translate_settings_reset_prompt))
+    NewSettingsSectionTitle(titleId = Strings.llm_actions_title)
+    HintText(stringResource(Strings.llm_actions_hint))
+    settings.llmActions.forEachIndexed { index, action ->
+        key(action.id) {
+            LlmActionCard(
+                action = action,
+                canMoveUp = index > 0,
+                canMoveDown = index < settings.llmActions.lastIndex,
+                viewModel = viewModel,
+            )
         }
     }
-    HintText(stringResource(Strings.explain_settings_prompt_hint))
+    val newActionName = stringResource(Strings.llm_actions_new_name)
+    Row(modifier = Modifier.padding(horizontal = 8.dp)) {
+        TextButton(onClick = { viewModel.onAddAction(newActionName) }) {
+            Text(stringResource(Strings.llm_actions_add))
+        }
+        TextButton(onClick = viewModel::onResetActions) {
+            Text(stringResource(Strings.llm_actions_reset))
+        }
+    }
+    SettingsTextField(
+        label = stringResource(Strings.llm_actions_context_length),
+        value = viewState.contextLengthText,
+        onValueChange = viewModel::onContextLengthChanged,
+        keyboardType = KeyboardType.Number,
+    )
+    HintText(stringResource(Strings.llm_actions_context_length_hint))
 
     NewSettingsDivider()
     NewSettingsSectionTitle(titleId = Strings.translate_settings_languages)
@@ -252,6 +264,58 @@ private fun SettingsTranslateContent(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error,
             )
+        }
+    }
+}
+
+@Composable
+private fun LlmActionCard(
+    action: LlmAction,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    viewModel: SettingsTranslateViewModel,
+) {
+    OutlinedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        Column(modifier = Modifier.padding(vertical = 8.dp)) {
+            SettingsTextField(
+                label = stringResource(Strings.llm_actions_name),
+                value = action.name,
+                onValueChange = { viewModel.onActionNameChanged(action.id, it) },
+            )
+            SettingsTextField(
+                label = stringResource(Strings.llm_actions_prompt),
+                value = action.prompt,
+                onValueChange = { viewModel.onActionPromptChanged(action.id, it) },
+                singleLine = false,
+            )
+            SettingsQuickCopySwitchItem(
+                title = stringResource(Strings.llm_actions_use_context),
+                isChecked = action.useContext,
+                onCheckedChange = { viewModel.onActionUseContextChanged(action.id, it) },
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = { viewModel.onMoveAction(action.id, -1) }, enabled = canMoveUp) {
+                    Text("↑")
+                }
+                TextButton(onClick = { viewModel.onMoveAction(action.id, 1) }, enabled = canMoveDown) {
+                    Text("↓")
+                }
+                TextButton(onClick = { viewModel.onDeleteAction(action.id) }) {
+                    Text(
+                        text = stringResource(Strings.llm_actions_delete),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
         }
     }
 }

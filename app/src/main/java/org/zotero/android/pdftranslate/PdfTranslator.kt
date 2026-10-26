@@ -7,6 +7,7 @@ import okhttp3.logging.HttpLoggingInterceptor.Level
 import org.zotero.android.api.interceptors.HttpLoggingInterceptor
 import org.zotero.android.architecture.Defaults
 import org.zotero.android.architecture.coroutines.Dispatchers
+import org.zotero.android.pdftranslate.data.LlmAction
 import org.zotero.android.pdftranslate.data.TranslateError
 import org.zotero.android.pdftranslate.data.TranslateResult
 import org.zotero.android.pdftranslate.data.TranslateServiceType
@@ -50,7 +51,7 @@ class PdfTranslator @Inject constructor(
     }
 
     private val cache = LruCache<String, TranslateResult>(50)
-    private val explanationCache = LruCache<String, String>(20)
+    private val actionCache = LruCache<String, String>(20)
 
     val settings: TranslateSettings
         get() = defaults.getTranslateSettings()
@@ -75,9 +76,10 @@ class PdfTranslator @Inject constructor(
     }
 
     /**
-     * Explains [text] with the LLM configured in settings, using the surrounding document text as context.
+     * Runs a user defined [action] with the LLM configured in settings.
      */
-    suspend fun explain(
+    suspend fun runAction(
+        action: LlmAction,
         text: String,
         contextBefore: String,
         contextAfter: String,
@@ -94,13 +96,14 @@ class PdfTranslator @Inject constructor(
             throw TranslateError.MissingApiKey
         }
         val cacheKey = listOf(
-            settings.openAiBaseUrl, settings.openAiModel, settings.explainPrompt.hashCode(),
+            settings.openAiBaseUrl, settings.openAiModel, action.prompt.hashCode(),
             settings.targetLanguage, title, contextBefore.hashCode(), contextAfter.hashCode(), sourceText
         ).joinToString("|")
-        explanationCache.get(cacheKey)?.let { return it }
+        actionCache.get(cacheKey)?.let { return it }
 
         val result = withContext(dispatchers.io) {
-            llmService.explain(
+            llmService.runAction(
+                action = action,
                 text = sourceText,
                 contextBefore = contextBefore,
                 contextAfter = contextAfter,
@@ -108,7 +111,7 @@ class PdfTranslator @Inject constructor(
                 settings = settings,
             )
         }
-        explanationCache.put(cacheKey, result)
+        actionCache.put(cacheKey, result)
         return result
     }
 

@@ -69,6 +69,7 @@ import org.zotero.android.pdf.data.PDFDocumentAnnotation
 import org.zotero.android.pdf.data.PdfReaderCurrentThemeEventStream
 import org.zotero.android.pdf.data.PdfReaderThemeDecider
 import org.zotero.android.pdftranslate.PdfTranslator
+import org.zotero.android.pdftranslate.data.LlmAction
 import org.zotero.android.pdftranslate.data.TranslateError
 import org.zotero.android.pdftranslate.data.TranslateSettings
 import org.zotero.android.screens.reader.annotation.data.ReaderAnnotationArgs
@@ -110,7 +111,6 @@ import org.zotero.android.screens.reader.sidebar.data.ReaderRequestThumbnailRend
 import org.zotero.android.screens.reader.sidebar.data.ReaderScrollReaderIfNeededEvent
 import org.zotero.android.screens.reader.sidebar.data.ReaderSliderOptions
 import org.zotero.android.screens.reader.sidebar.data.ReaderWrapperOutline
-import org.zotero.android.screens.reader.translate.ReaderAssistMode
 import org.zotero.android.screens.reader.translate.ReaderAssistResult
 import org.zotero.android.screens.reader.translate.ReaderTranslationState
 import org.zotero.android.screens.reader.web.ReaderCustomWebView
@@ -174,8 +174,8 @@ class ReaderViewModel @Inject constructor(
     // Copy of the selection the translation popup was opened for. The selection itself gets cleared
     // when the action mode is dismissed, but it's still needed to create a highlight from the popup.
     private var translationSelectionParams: JsonObject? = null
-    private var translationJob: Job? = null
-    private var explanationJob: Job? = null
+    // Running translation / LLM action requests of the selection sheet, by tab.
+    private val assistJobs = mutableMapOf<String, Job>()
     private var readerWebView: ReaderCustomWebView? = null
     private var annotations = mutableMapOf<String, ReaderAnnotation?>()
     private var texts = mutableMapOf<String, Pair<String, Map<TextStyle, String>>?>()
@@ -449,8 +449,10 @@ class ReaderViewModel @Inject constructor(
                 this@ReaderViewModel.onTranslateSelection()
             }
 
-            override fun onExplain() {
-                this@ReaderViewModel.onExplainSelection()
+            override fun llmActions(): List<LlmAction> = pdfTranslator.settings.llmActions
+
+            override fun onLlmAction(actionId: String) {
+                this@ReaderViewModel.onLlmActionSelected(actionId)
             }
         }
         readerWebCallChainExecutor.start(webView = webView, file = this.readerFile)
@@ -2694,14 +2696,14 @@ class ReaderViewModel @Inject constructor(
     }
 
     private fun onTranslateSelection() {
-        openAssistSheet(ReaderAssistMode.translate)
+        openAssistSheet(ReaderTranslationState.TRANSLATE_TAB)
     }
 
-    private fun onExplainSelection() {
-        openAssistSheet(ReaderAssistMode.explain)
+    private fun onLlmActionSelected(actionId: String) {
+        openAssistSheet(actionId)
     }
 
-    private fun openAssistSheet(mode: ReaderAssistMode) {
+    private fun openAssistSheet(tab: String) {
         val text = viewState.selectedText ?: return
         this.translationSelectionParams = this.selectedTextParams?.deepCopy()
         val settings = pdfTranslator.settings
@@ -2709,68 +2711,59 @@ class ReaderViewModel @Inject constructor(
             copy(
                 translation = ReaderTranslationState(
                     sourceText = text,
-                    mode = mode,
+                    selectedTab = tab,
                     targetLanguage = settings.targetLanguage,
                     service = settings.service,
                     canCreateAnnotation = translationSelectionParams != null,
+                    actions = settings.llmActions.filter { it.name.isNotBlank() },
                 )
             )
         }
-        runAssist(mode)
+        runAssist(tab)
     }
 
-    fun onAssistModeSelected(mode: ReaderAssistMode) {
+    fun onAssistTabSelected(tab: String) {
         val current = viewState.translation ?: return
-        if (current.mode == mode) {
+        if (current.selectedTab == tab) {
             return
         }
-        updateState { copy(translation = current.copy(mode = mode)) }
-        val result = if (mode == ReaderAssistMode.translate) current.translation else current.explanation
-        if (result.text == null && !result.isLoading) {
-            runAssist(mode)
+        updateState { copy(translation = current.copy(selectedTab = tab)) }
+        val result = current.results[tab]
+        if (result == null || (result.text == null && !result.isLoading && result.error == null)) {
+            runAssist(tab)
         }
     }
 
-    private fun runAssist(mode: ReaderAssistMode) {
+    private fun runAssist(tab: String) {
         val state = viewState.translation ?: return
-        val job = when (mode) {
-            ReaderAssistMode.translate -> translationJob
-            ReaderAssistMode.explain -> explanationJob
-        }
-        job?.cancel()
-        updateAssistResult(mode) { ReaderAssistResult(isLoading = true) }
+        assistJobs.remove(tab)?.cancel()
+        updateAssistResult(tab) { ReaderAssistResult(isLoading = true) }
 
-        val newJob = viewModelScope.launch {
+        assistJobs[tab] = viewModelScope.launch {
             val settings = pdfTranslator.settings.copy(targetLanguage = state.targetLanguage)
             try {
-                val text = when (mode) {
-                    ReaderAssistMode.translate -> {
-                        val result = pdfTranslator.translate(text = state.sourceText, settings = settings)
-                        updateTranslationState { copy(service = result.service) }
-                        result.translatedText
-                    }
-
-                    ReaderAssistMode.explain -> explainSelection(state.sourceText, settings)
+                val text = if (tab == ReaderTranslationState.TRANSLATE_TAB) {
+                    val result = pdfTranslator.translate(text = state.sourceText, settings = settings)
+                    updateTranslationState { copy(service = result.service) }
+                    result.translatedText
+                } else {
+                    val action = state.actions.firstOrNull { it.id == tab } ?: return@launch
+                    runLlmAction(action = action, text = state.sourceText, settings = settings)
                 }
-                updateAssistResult(mode) { ReaderAssistResult(text = text) }
+                updateAssistResult(tab) { ReaderAssistResult(text = text) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Timber.e(e, "ReaderViewModel: $mode failed")
-                updateAssistResult(mode) {
+                Timber.e(e, "ReaderViewModel: assist $tab failed")
+                updateAssistResult(tab) {
                     ReaderAssistResult(error = e as? TranslateError ?: TranslateError.Network(e))
                 }
             }
         }
-        when (mode) {
-            ReaderAssistMode.translate -> translationJob = newJob
-            ReaderAssistMode.explain -> explanationJob = newJob
-        }
     }
 
-    private suspend fun explainSelection(text: String, settings: TranslateSettings): String {
-        val contextLength = settings.explainContextLength
-            .coerceIn(0, TranslateSettings.MAX_EXPLAIN_CONTEXT_LENGTH)
+    private suspend fun runLlmAction(action: LlmAction, text: String, settings: TranslateSettings): String {
+        val contextLength = settings.contextLength.coerceIn(0, TranslateSettings.MAX_CONTEXT_LENGTH)
         val pageIndex = translationSelectionParams
             ?.getAsJsonObject("annotation")
             ?.getAsJsonObject("position")
@@ -2778,7 +2771,7 @@ class ReaderViewModel @Inject constructor(
             ?.takeIf { it.isJsonPrimitive }
             ?.asInt
         // Most of the context comes before the passage, that's what usually explains it.
-        val context = if (contextLength > 0) {
+        val context = if (action.useContext && contextLength > 0) {
             readerWebCallChainExecutor.getSelectionContext(
                 text = text,
                 pageIndex = pageIndex,
@@ -2788,7 +2781,8 @@ class ReaderViewModel @Inject constructor(
         } else {
             null
         }
-        return pdfTranslator.explain(
+        return pdfTranslator.runAction(
+            action = action,
             text = text,
             contextBefore = context?.first.orEmpty(),
             contextAfter = context?.second.orEmpty(),
@@ -2814,12 +2808,9 @@ class ReaderViewModel @Inject constructor(
         return this.item?.displayTitle.orEmpty()
     }
 
-    private fun updateAssistResult(mode: ReaderAssistMode, block: ReaderAssistResult.() -> ReaderAssistResult) {
+    private fun updateAssistResult(tab: String, block: ReaderAssistResult.() -> ReaderAssistResult) {
         updateTranslationState {
-            when (mode) {
-                ReaderAssistMode.translate -> copy(translation = translation.block())
-                ReaderAssistMode.explain -> copy(explanation = explanation.block())
-            }
+            copy(results = results + (tab to (results[tab] ?: ReaderAssistResult()).block()))
         }
     }
 
@@ -2834,28 +2825,22 @@ class ReaderViewModel @Inject constructor(
             return
         }
         defaults.setTranslateSettings(pdfTranslator.settings.copy(targetLanguage = language))
+        assistJobs.values.forEach { it.cancel() }
+        assistJobs.clear()
         updateState {
-            copy(
-                translation = current.copy(
-                    targetLanguage = language,
-                    translation = ReaderAssistResult(),
-                    explanation = ReaderAssistResult(),
-                )
-            )
+            copy(translation = current.copy(targetLanguage = language, results = emptyMap()))
         }
-        runAssist(current.mode)
+        runAssist(current.selectedTab)
     }
 
     fun retryTranslation() {
-        val mode = viewState.translation?.mode ?: return
-        runAssist(mode)
+        val tab = viewState.translation?.selectedTab ?: return
+        runAssist(tab)
     }
 
     fun dismissTranslation() {
-        translationJob?.cancel()
-        translationJob = null
-        explanationJob?.cancel()
-        explanationJob = null
+        assistJobs.values.forEach { it.cancel() }
+        assistJobs.clear()
         translationSelectionParams = null
         updateState { copy(translation = null) }
     }

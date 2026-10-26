@@ -10,6 +10,7 @@ import org.zotero.android.architecture.Defaults
 import org.zotero.android.architecture.ViewEffect
 import org.zotero.android.architecture.ViewState
 import org.zotero.android.pdftranslate.PdfTranslator
+import org.zotero.android.pdftranslate.data.LlmAction
 import org.zotero.android.pdftranslate.data.TranslateError
 import org.zotero.android.pdftranslate.data.TranslateServiceType
 import org.zotero.android.pdftranslate.data.TranslateSettings
@@ -29,7 +30,7 @@ internal class SettingsTranslateViewModel @Inject constructor(
         updateState {
             copy(
                 settings = settings,
-                explainContextLengthText = settings.explainContextLength.toString(),
+                contextLengthText = settings.contextLength.toString(),
             )
         }
     }
@@ -51,17 +52,42 @@ internal class SettingsTranslateViewModel @Inject constructor(
     fun onResetOpenAiPrompt() = update { copy(openAiPrompt = TranslateSettings.DEFAULT_OPEN_AI_PROMPT) }
     fun onAddToCommentChanged(value: Boolean) = update { copy(addTranslationToAnnotationComment = value) }
     fun onCleanUpTextChanged(value: Boolean) = update { copy(cleanUpSourceText = value) }
-    fun onExplainPromptChanged(value: String) = update { copy(explainPrompt = value) }
-    fun onResetExplainPrompt() = update { copy(explainPrompt = TranslateSettings.DEFAULT_EXPLAIN_PROMPT) }
 
-    fun onExplainContextLengthChanged(value: String) {
+    fun onContextLengthChanged(value: String) {
         val digits = value.filter { it.isDigit() }.take(5)
-        updateState { copy(explainContextLengthText = digits) }
+        updateState { copy(contextLengthText = digits) }
         val length = digits.toIntOrNull() ?: return
         update {
-            copy(explainContextLength = length.coerceIn(1, TranslateSettings.MAX_EXPLAIN_CONTEXT_LENGTH))
+            copy(contextLength = length.coerceIn(1, TranslateSettings.MAX_CONTEXT_LENGTH))
         }
     }
+
+    private fun updateAction(id: String, block: LlmAction.() -> LlmAction) = update {
+        copy(llmActions = llmActions.map { if (it.id == id) it.block() else it })
+    }
+
+    fun onActionNameChanged(id: String, value: String) = updateAction(id) { copy(name = value) }
+    fun onActionPromptChanged(id: String, value: String) = updateAction(id) { copy(prompt = value) }
+    fun onActionUseContextChanged(id: String, value: Boolean) = updateAction(id) { copy(useContext = value) }
+
+    fun onMoveAction(id: String, offset: Int) = update {
+        val index = llmActions.indexOfFirst { it.id == id }
+        val target = index + offset
+        if (index < 0 || target !in llmActions.indices) {
+            return@update this
+        }
+        val actions = llmActions.toMutableList()
+        actions.add(target, actions.removeAt(index))
+        copy(llmActions = actions)
+    }
+
+    fun onDeleteAction(id: String) = update { copy(llmActions = llmActions.filterNot { it.id == id }) }
+
+    fun onAddAction(defaultName: String) = update {
+        copy(llmActions = llmActions + LlmAction(name = defaultName, prompt = LlmAction.NEW_ACTION_PROMPT))
+    }
+
+    fun onResetActions() = update { copy(llmActions = LlmAction.defaults()) }
 
     fun onTestTapped(sampleText: String) {
         testJob?.cancel()
@@ -88,7 +114,7 @@ internal class SettingsTranslateViewModel @Inject constructor(
 
 internal data class SettingsTranslateViewState(
     val settings: TranslateSettings = TranslateSettings(),
-    val explainContextLengthText: String = "",
+    val contextLengthText: String = "",
     val isTesting: Boolean = false,
     val testResult: String? = null,
     val testError: TranslateError? = null,

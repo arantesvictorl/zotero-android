@@ -14,6 +14,7 @@ import org.zotero.android.screens.itemdetails.data.ItemDetailCreator
 import org.zotero.android.screens.reader.settings.data.PageScrollMode
 import org.zotero.android.screens.reader.settings.data.ReaderSettings
 import org.zotero.android.webdav.data.WebDavScheme
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -603,9 +604,18 @@ open class Defaults @Inject constructor(
                 openAiBaseUrl = stored.openAiBaseUrl ?: default.openAiBaseUrl,
                 openAiModel = stored.openAiModel ?: default.openAiModel,
                 openAiPrompt = stored.openAiPrompt ?: default.openAiPrompt,
-                explainPrompt = stored.explainPrompt ?: default.explainPrompt,
-                explainContextLength = stored.explainContextLength
-                    .takeIf { it > 0 } ?: default.explainContextLength,
+                llmActions = stored.llmActions
+                    ?.filterNotNull()
+                    ?.map {
+                        it.copy(
+                            id = it.id ?: UUID.randomUUID().toString(),
+                            name = it.name ?: "",
+                            prompt = it.prompt ?: "",
+                        )
+                    }
+                    ?: default.llmActions,
+                contextLength = stored.contextLength
+                    .takeIf { it > 0 } ?: default.contextLength,
             )
         } catch (e: Exception) {
             TranslateSettings()
