@@ -11,6 +11,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v6
@@ -76,7 +78,11 @@ jobs:
           scripts/bundle_document-worker.sh
 
       - name: Build debug APK
-        run: ./gradlew --no-configuration-cache -PpreDexLibs=false assembleDevDebug --stacktrace
+        run: |
+          ./gradlew --no-configuration-cache -PpreDexLibs=false \
+            -PciBuildNumber=${{ github.run_number }} \
+            -PciRepository=${{ github.repository }} \
+            assembleDevDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -84,3 +90,17 @@ jobs:
           name: zotero-debug-apk
           path: app/build/outputs/apk/dev/debug/*.apk
           if-no-files-found: error
+
+      # Read by the in-app updater (Settings > Check for updates): "build=" must match ciBuildNumber.
+      - name: Publish debug-latest pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/dev/debug/*.apk zotero-debug.apk
+          printf 'build=%s\ncommit=%s\nbranch=%s\n' "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" "$GITHUB_REF_NAME" > notes.txt
+          gh release delete debug-latest --yes --cleanup-tag || true
+          gh release create debug-latest zotero-debug.apk \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Zotero Debug #${GITHUB_RUN_NUMBER}" \
+            --notes-file notes.txt

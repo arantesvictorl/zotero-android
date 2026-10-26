@@ -50,4 +50,21 @@
     <string name="llm_actions_new_name">Nova ação</string>
     <string name="llm_actions_context_length">Tamanho do contexto (caracteres)</string>
     <string name="llm_actions_context_length_hint">Quanto do texto ao redor da seleção é enviado ao modelo, cerca de ¾ antes e ¼ depois. Em PDFs, ele vem da página atual, da anterior e da seguinte. Valores maiores dão respostas melhores, mas gastam mais tokens.</string>
+    <string name="update_title">Verificar atualizações</string>
+    <string name="update_current_build">Build instalado: %1$s</string>
+    <string name="update_latest_build">Último build no GitHub: %1$s</string>
+    <string name="update_local_build">local</string>
+    <string name="update_checking">Consultando o GitHub…</string>
+    <string name="update_up_to_date">Você já tem o build mais recente.</string>
+    <string name="update_available">Há um build novo disponível.</string>
+    <string name="update_check_again">Verificar de novo</string>
+    <string name="update_reinstall">Reinstalar</string>
+    <string name="update_download_install">Baixar e instalar</string>
+    <string name="update_downloading">Baixando…</string>
+    <string name="update_ready">Download concluído. Confirme a instalação na janela do sistema.</string>
+    <string name="update_install">Instalar</string>
+    <string name="update_needs_permission">Permita que este app instale atualizações na tela que acabou de abrir, depois volte e toque em Instalar.</string>
+    <string name="update_no_release">Nenhum build foi publicado no GitHub ainda.</string>
+    <string name="update_error">Não foi possível verificar atualizações: %1$s</string>
+    <string name="update_hint">Os builds vêm da pre-release debug-latest deste fork, publicada pelo GitHub Actions a cada push. Sua biblioteca e suas configurações são mantidas na atualização.</string>
 </resources>

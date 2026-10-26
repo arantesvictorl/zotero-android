@@ -154,4 +154,21 @@
     <string name="llm_actions_new_name">New action</string>
     <string name="llm_actions_context_length">Context size (characters)</string>
     <string name="llm_actions_context_length_hint">How much of the text around the selection is sent to the model, about ¾ before and ¼ after it. For PDFs it is taken from the current, previous and next pages. Larger values give better answers but cost more tokens.</string>
+    <string name="update_title">Check for updates</string>
+    <string name="update_current_build">Installed build: %1$s</string>
+    <string name="update_latest_build">Latest build on GitHub: %1$s</string>
+    <string name="update_local_build">local</string>
+    <string name="update_checking">Checking GitHub…</string>
+    <string name="update_up_to_date">You have the latest build.</string>
+    <string name="update_available">A new build is available.</string>
+    <string name="update_check_again">Check again</string>
+    <string name="update_reinstall">Reinstall</string>
+    <string name="update_download_install">Download and install</string>
+    <string name="update_downloading">Downloading…</string>
+    <string name="update_ready">Download finished. Confirm the installation in the system dialog.</string>
+    <string name="update_install">Install</string>
+    <string name="update_needs_permission">Allow this app to install updates in the screen that just opened, then come back and tap Install.</string>
+    <string name="update_no_release">No build was published on GitHub yet.</string>
+    <string name="update_error">Couldn’t check for updates: %1$s</string>
+    <string name="update_hint">Builds come from the debug-latest pre-release of this fork, published by GitHub Actions on every push. Your library and settings are kept when updating.</string>
 </resources>

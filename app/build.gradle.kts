@@ -43,6 +43,14 @@ android {
         buildConfigField("String", "PSPDFKIT_KEY", "\"\"")
         manifestPlaceholders["enableCrashReporting"] = false
 
+        // Set by the "Debug APK" GitHub workflow, used by the in-app updater (Settings > Check for updates).
+        buildConfigField("int", "CI_BUILD_NUMBER", (project.findProperty("ciBuildNumber") ?: "0").toString())
+        buildConfigField(
+            "String",
+            "UPDATE_REPOSITORY",
+            "\"${project.findProperty("ciRepository") ?: "arantesvictorl/zotero-android"}\""
+        )
+
         //Making build version components to be accessible from within the app.
         buildConfigField("int", "BUILD_VERSION_MAJOR", "${BuildConfig.version.major}")
         buildConfigField("int", "BUILD_VERSION_MINOR", "${BuildConfig.version.minor}")

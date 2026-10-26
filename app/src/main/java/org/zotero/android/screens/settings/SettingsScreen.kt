@@ -29,6 +29,7 @@ internal fun SettingsScreen(
     toCiteScreen: () -> Unit,
     toQuickCopyScreen: () -> Unit,
     toTranslateScreen: () -> Unit,
+    toUpdateScreen: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
     AppThemeM3 {
@@ -79,6 +80,10 @@ internal fun SettingsScreen(
                 NewSettingsItem(
                     title = stringResource(id = Strings.translate_settings_title),
                     onItemTapped = toTranslateScreen,
+                )
+                NewSettingsItem(
+                    title = stringResource(id = Strings.update_title),
+                    onItemTapped = toUpdateScreen,
                 )
                 NewSettingsItem(
                     title = stringResource(id = Strings.settings_debug),
