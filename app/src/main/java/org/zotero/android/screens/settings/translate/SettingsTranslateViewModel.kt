@@ -52,7 +52,6 @@ internal class SettingsTranslateViewModel @Inject constructor(
     fun onResetOpenAiPrompt() = update { copy(openAiPrompt = TranslateSettings.DEFAULT_OPEN_AI_PROMPT) }
     fun onAddToCommentChanged(value: Boolean) = update { copy(addTranslationToAnnotationComment = value) }
     fun onCleanUpTextChanged(value: Boolean) = update { copy(cleanUpSourceText = value) }
-    fun onLockSelectionToColumnChanged(value: Boolean) = update { copy(allowCrossColumnSelection = !value) }
 
     fun onContextLengthChanged(value: String) {
         val digits = value.filter { it.isDigit() }.take(5)

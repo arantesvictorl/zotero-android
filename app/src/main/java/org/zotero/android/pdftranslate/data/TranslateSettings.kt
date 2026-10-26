@@ -17,9 +17,6 @@ data class TranslateSettings(
     val llmActions: List<LlmAction> = LlmAction.defaults(),
     // Amount of surrounding document text sent along with the selection to LLM actions.
     val contextLength: Int = DEFAULT_CONTEXT_LENGTH,
-    // By default a PDF selection can't jump from one column to the other (see ReaderSelectionColumnGuard).
-    // Stored inverted so that settings saved by older versions keep the guard enabled.
-    val allowCrossColumnSelection: Boolean = false,
 ) {
     companion object {
         const val DEFAULT_OPEN_AI_BASE_URL = "https://api.openai.com/v1"
