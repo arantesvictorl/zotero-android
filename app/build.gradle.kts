@@ -171,6 +171,13 @@ dependencies {
     //Commons
     implementation(Libs.Commons.text)
 
+    //Markdown
+    implementation(Libs.Markwon.core)
+    implementation(Libs.Markwon.inlineParser)
+    implementation(Libs.Markwon.latex)
+    implementation(Libs.Markwon.tables)
+    implementation(Libs.Markwon.strikethrough)
+
     //Other
     implementation(Libs.timber)
     implementation(Libs.jodaTime)

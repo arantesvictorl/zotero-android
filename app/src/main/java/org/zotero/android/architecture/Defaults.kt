@@ -6,6 +6,7 @@ import androidx.core.content.edit
 import org.zotero.android.database.objects.AnnotationsConfig
 import org.zotero.android.files.DataMarshaller
 import org.zotero.android.pdf.data.PDFSettings
+import org.zotero.android.pdftranslate.data.LlmAction
 import org.zotero.android.pdftranslate.data.TranslateSettings
 import org.zotero.android.screens.allitems.data.ItemsSortType
 import org.zotero.android.screens.citbibexport.data.CitBibExportOutputMethod
@@ -603,14 +604,15 @@ open class Defaults @Inject constructor(
                 openAiApiKey = stored.openAiApiKey ?: default.openAiApiKey,
                 openAiBaseUrl = stored.openAiBaseUrl ?: default.openAiBaseUrl,
                 openAiModel = stored.openAiModel ?: default.openAiModel,
-                openAiPrompt = stored.openAiPrompt ?: default.openAiPrompt,
+                openAiPrompt = (stored.openAiPrompt ?: default.openAiPrompt)
+                    .takeUnless { it in TranslateSettings.LEGACY_OPEN_AI_PROMPTS } ?: default.openAiPrompt,
                 llmActions = stored.llmActions
                     ?.filterNotNull()
                     ?.map {
                         it.copy(
                             id = it.id ?: UUID.randomUUID().toString(),
                             name = it.name ?: "",
-                            prompt = it.prompt ?: "",
+                            prompt = LlmAction.upgradeLegacyPrompt(it.prompt ?: ""),
                         )
                     }
                     ?: default.llmActions,

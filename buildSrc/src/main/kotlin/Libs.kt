@@ -15,6 +15,16 @@ object Libs {
 
     const val codeScanner = "com.google.android.gms:play-services-code-scanner:16.1.0"
 
+    // Markdown + LaTeX rendering of LLM answers in the reader translation sheet.
+    object Markwon {
+        private const val version = "4.6.2"
+        const val core = "io.noties.markwon:core:$version"
+        const val inlineParser = "io.noties.markwon:inline-parser:$version"
+        const val latex = "io.noties.markwon:ext-latex:$version"
+        const val tables = "io.noties.markwon:ext-tables:$version"
+        const val strikethrough = "io.noties.markwon:ext-strikethrough:$version"
+    }
+
     object Compose {
         private const val version = "1.11.4"
         const val foundation = "androidx.compose.foundation:foundation:$version"

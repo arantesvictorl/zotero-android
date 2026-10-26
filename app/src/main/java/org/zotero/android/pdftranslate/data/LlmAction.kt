@@ -17,12 +17,15 @@ data class LlmAction(
         private const val EXPLAIN_ID = "explain"
         private const val SUMMARIZE_ID = "summarize"
 
+        private const val MATH_INSTRUCTION =
+            "Write math in LaTeX, using \$...\$ inline and \$\$...\$\$ for display equations."
+
         const val DEFAULT_EXPLAIN_PROMPT =
             "You are helping a researcher read an academic paper titled \"${TranslateSettings.PLACEHOLDER_TITLE}\".\n" +
                     "Explain the selected passage below in ${TranslateSettings.PLACEHOLDER_TARGET_LANGUAGE}. Be clear and " +
                     "concise: say what it means in simpler words, explain the key concepts, terms, " +
                     "notation or code it uses, and how it relates to the surrounding text. Do not just " +
-                    "translate it. Use short paragraphs or bullet points, without tables.\n\n" +
+                    "translate it. Use short paragraphs or bullet points, without tables. $MATH_INSTRUCTION\n\n" +
                     "Text before the passage:\n\"\"\"${TranslateSettings.PLACEHOLDER_CONTEXT_BEFORE}\"\"\"\n\n" +
                     "Selected passage:\n\"\"\"${TranslateSettings.PLACEHOLDER_TEXT}\"\"\"\n\n" +
                     "Text after the passage:\n\"\"\"${TranslateSettings.PLACEHOLDER_CONTEXT_AFTER}\"\"\""
@@ -31,7 +34,7 @@ data class LlmAction(
             "Summarize the selected passage of the academic paper \"${TranslateSettings.PLACEHOLDER_TITLE}\" " +
                     "in ${TranslateSettings.PLACEHOLDER_TARGET_LANGUAGE}, in 3 to 5 short bullet points with its " +
                     "main ideas. The surrounding text is only there to help you understand the passage, " +
-                    "do not summarize it.\n\n" +
+                    "do not summarize it. $MATH_INSTRUCTION\n\n" +
                     "Text before the passage:\n\"\"\"${TranslateSettings.PLACEHOLDER_CONTEXT_BEFORE}\"\"\"\n\n" +
                     "Selected passage:\n\"\"\"${TranslateSettings.PLACEHOLDER_TEXT}\"\"\"\n\n" +
                     "Text after the passage:\n\"\"\"${TranslateSettings.PLACEHOLDER_CONTEXT_AFTER}\"\"\""
@@ -39,6 +42,16 @@ data class LlmAction(
         const val NEW_ACTION_PROMPT =
             "Answer in ${TranslateSettings.PLACEHOLDER_TARGET_LANGUAGE}.\n\n" +
                     "Selected passage:\n\"\"\"${TranslateSettings.PLACEHOLDER_TEXT}\"\"\""
+
+        // Default prompts of previous versions, replaced by the current defaults if the user didn't edit them.
+        private val legacyPrompts: Map<String, String> by lazy {
+            mapOf(
+                DEFAULT_EXPLAIN_PROMPT.replace(" $MATH_INSTRUCTION", "") to DEFAULT_EXPLAIN_PROMPT,
+                DEFAULT_SUMMARIZE_PROMPT.replace(" $MATH_INSTRUCTION", "") to DEFAULT_SUMMARIZE_PROMPT,
+            )
+        }
+
+        fun upgradeLegacyPrompt(prompt: String): String = legacyPrompts[prompt] ?: prompt
 
         fun defaults(locale: Locale = Locale.getDefault()): List<LlmAction> {
             val portuguese = locale.language == "pt"

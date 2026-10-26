@@ -38,18 +38,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.zotero.android.database.objects.AnnotationType
 import org.zotero.android.pdftranslate.data.TranslateError
 import org.zotero.android.pdftranslate.data.TranslateLanguage
+import org.zotero.android.pdftranslate.data.TranslateServiceType
 import org.zotero.android.screens.reader.ReaderViewModel
 import org.zotero.android.screens.reader.ReaderViewState
 import org.zotero.android.screens.settings.translate.serviceName
@@ -145,7 +140,13 @@ private fun ReaderTranslationSheet(
                     )
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-                AssistContent(isTranslation = state.isTranslateTab, result = state.current, onRetry = onRetry)
+                AssistContent(
+                    isTranslation = state.isTranslateTab,
+                    // Google and DeepL return plain text, LLMs answer in Markdown with LaTeX formulas.
+                    renderMarkdown = !state.isTranslateTab || state.service == TranslateServiceType.openAiCompatible,
+                    result = state.current,
+                    onRetry = onRetry,
+                )
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -194,7 +195,12 @@ private fun ReaderTranslationSheet(
 }
 
 @Composable
-private fun AssistContent(isTranslation: Boolean, result: ReaderAssistResult, onRetry: () -> Unit) {
+private fun AssistContent(
+    isTranslation: Boolean,
+    renderMarkdown: Boolean,
+    result: ReaderAssistResult,
+    onRetry: () -> Unit,
+) {
     val error = result.error
     val text = result.text
     when {
@@ -231,52 +237,16 @@ private fun AssistContent(isTranslation: Boolean, result: ReaderAssistResult, on
         }
 
         text != null -> {
-            SelectionContainer {
-                Text(
-                    text = if (isTranslation) AnnotatedString(text) else simpleMarkdown(text),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-        }
-    }
-}
-
-/**
- * LLMs answer in Markdown. Renders the common bits (headings, bold, bullets, inline code)
- * instead of showing raw asterisks.
- */
-private fun simpleMarkdown(markdown: String): AnnotatedString {
-    val inlineRegex = Regex("\\*\\*(.+?)\\*\\*|__(.+?)__|`([^`]+)`")
-    return buildAnnotatedString {
-        markdown.trim().lines().forEachIndexed { index, rawLine ->
-            if (index > 0) append('\n')
-            var line = rawLine
-            var isHeading = false
-            val heading = Regex("^\\s{0,3}#{1,6}\\s+").find(line)
-            if (heading != null) {
-                line = line.substring(heading.range.last + 1)
-                isHeading = true
-            }
-            val bullet = Regex("^(\\s*)[-*+]\\s+").find(line)
-            if (bullet != null) {
-                line = bullet.groupValues[1] + "• " + line.substring(bullet.range.last + 1)
-            }
-            val start = length
-            var last = 0
-            for (match in inlineRegex.findAll(line)) {
-                append(line.substring(last, match.range.first))
-                val bold = match.groups[1]?.value ?: match.groups[2]?.value
-                if (bold != null) {
-                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(bold) }
-                } else {
-                    withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { append(match.groupValues[3]) }
+            if (renderMarkdown) {
+                MarkdownText(markdown = text, modifier = Modifier.fillMaxWidth())
+            } else {
+                SelectionContainer {
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                 }
-                last = match.range.last + 1
-            }
-            append(line.substring(last))
-            if (isHeading) {
-                addStyle(SpanStyle(fontWeight = FontWeight.Bold), start, length)
             }
         }
     }

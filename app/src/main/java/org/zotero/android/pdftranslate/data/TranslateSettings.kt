@@ -36,7 +36,19 @@ data class TranslateSettings(
                     "proficient and precise translation from $PLACEHOLDER_SOURCE_LANGUAGE to " +
                     "$PLACEHOLDER_TARGET_LANGUAGE of the academic text enclosed in 🔤. It is crucial " +
                     "to maintain the original phrase or sentence and ensure accuracy while utilizing " +
+                    "the appropriate language. Write mathematical formulas and symbols in LaTeX " +
+                    "(\$...\$ inline, \$\$...\$\$ for display equations) and keep lists as Markdown. " +
+                    "The text is as follows: 🔤 $PLACEHOLDER_TEXT 🔤 " +
+                    "Please provide the translated result without any additional explanation and remove 🔤."
+
+        // Default prompts of previous versions, replaced by the current defaults if the user didn't edit them.
+        val LEGACY_OPEN_AI_PROMPTS = setOf(
+            "As an academic expert with specialized knowledge in various fields, please provide a " +
+                    "proficient and precise translation from $PLACEHOLDER_SOURCE_LANGUAGE to " +
+                    "$PLACEHOLDER_TARGET_LANGUAGE of the academic text enclosed in 🔤. It is crucial " +
+                    "to maintain the original phrase or sentence and ensure accuracy while utilizing " +
                     "the appropriate language. The text is as follows: 🔤 $PLACEHOLDER_TEXT 🔤 " +
                     "Please provide the translated result without any additional explanation and remove 🔤."
+        )
     }
 }
