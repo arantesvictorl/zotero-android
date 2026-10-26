@@ -25,7 +25,13 @@ internal class SettingsTranslateViewModel @Inject constructor(
     private var testJob: Job? = null
 
     fun init() = initOnce {
-        updateState { copy(settings = defaults.getTranslateSettings()) }
+        val settings = defaults.getTranslateSettings()
+        updateState {
+            copy(
+                settings = settings,
+                explainContextLengthText = settings.explainContextLength.toString(),
+            )
+        }
     }
 
     private fun update(block: TranslateSettings.() -> TranslateSettings) {
@@ -45,6 +51,17 @@ internal class SettingsTranslateViewModel @Inject constructor(
     fun onResetOpenAiPrompt() = update { copy(openAiPrompt = TranslateSettings.DEFAULT_OPEN_AI_PROMPT) }
     fun onAddToCommentChanged(value: Boolean) = update { copy(addTranslationToAnnotationComment = value) }
     fun onCleanUpTextChanged(value: Boolean) = update { copy(cleanUpSourceText = value) }
+    fun onExplainPromptChanged(value: String) = update { copy(explainPrompt = value) }
+    fun onResetExplainPrompt() = update { copy(explainPrompt = TranslateSettings.DEFAULT_EXPLAIN_PROMPT) }
+
+    fun onExplainContextLengthChanged(value: String) {
+        val digits = value.filter { it.isDigit() }.take(5)
+        updateState { copy(explainContextLengthText = digits) }
+        val length = digits.toIntOrNull() ?: return
+        update {
+            copy(explainContextLength = length.coerceIn(1, TranslateSettings.MAX_EXPLAIN_CONTEXT_LENGTH))
+        }
+    }
 
     fun onTestTapped(sampleText: String) {
         testJob?.cancel()
@@ -71,6 +88,7 @@ internal class SettingsTranslateViewModel @Inject constructor(
 
 internal data class SettingsTranslateViewState(
     val settings: TranslateSettings = TranslateSettings(),
+    val explainContextLengthText: String = "",
     val isTesting: Boolean = false,
     val testResult: String? = null,
     val testError: TranslateError? = null,

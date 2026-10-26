@@ -135,22 +135,7 @@ private fun SettingsTranslateContent(
         }
 
         TranslateServiceType.openAiCompatible -> {
-            SettingsTextField(
-                label = stringResource(Strings.translate_settings_base_url),
-                value = settings.openAiBaseUrl,
-                onValueChange = viewModel::onOpenAiBaseUrlChanged,
-                keyboardType = KeyboardType.Uri,
-            )
-            SecretField(
-                label = stringResource(Strings.translate_settings_api_key),
-                value = settings.openAiApiKey,
-                onValueChange = viewModel::onOpenAiApiKeyChanged,
-            )
-            SettingsTextField(
-                label = stringResource(Strings.translate_settings_model),
-                value = settings.openAiModel,
-                onValueChange = viewModel::onOpenAiModelChanged,
-            )
+            HintText(stringResource(Strings.translate_settings_uses_llm_below))
             SettingsTextField(
                 label = stringResource(Strings.translate_settings_prompt),
                 value = settings.openAiPrompt,
@@ -162,9 +147,50 @@ private fun SettingsTranslateContent(
                     Text(stringResource(Strings.translate_settings_reset_prompt))
                 }
             }
-            HintText(stringResource(Strings.translate_settings_openai_hint))
         }
     }
+
+    NewSettingsDivider()
+    NewSettingsSectionTitle(titleId = Strings.translate_settings_llm)
+    HintText(stringResource(Strings.translate_settings_openai_hint))
+    SettingsTextField(
+        label = stringResource(Strings.translate_settings_base_url),
+        value = settings.openAiBaseUrl,
+        onValueChange = viewModel::onOpenAiBaseUrlChanged,
+        keyboardType = KeyboardType.Uri,
+    )
+    SecretField(
+        label = stringResource(Strings.translate_settings_api_key),
+        value = settings.openAiApiKey,
+        onValueChange = viewModel::onOpenAiApiKeyChanged,
+    )
+    SettingsTextField(
+        label = stringResource(Strings.translate_settings_model),
+        value = settings.openAiModel,
+        onValueChange = viewModel::onOpenAiModelChanged,
+    )
+
+    NewSettingsDivider()
+    NewSettingsSectionTitle(titleId = Strings.explain_settings_title)
+    SettingsTextField(
+        label = stringResource(Strings.explain_settings_context_length),
+        value = viewState.explainContextLengthText,
+        onValueChange = viewModel::onExplainContextLengthChanged,
+        keyboardType = KeyboardType.Number,
+    )
+    HintText(stringResource(Strings.explain_settings_context_length_hint))
+    SettingsTextField(
+        label = stringResource(Strings.explain_settings_prompt),
+        value = settings.explainPrompt,
+        onValueChange = viewModel::onExplainPromptChanged,
+        singleLine = false,
+    )
+    Row(modifier = Modifier.padding(horizontal = 8.dp)) {
+        TextButton(onClick = viewModel::onResetExplainPrompt) {
+            Text(stringResource(Strings.translate_settings_reset_prompt))
+        }
+    }
+    HintText(stringResource(Strings.explain_settings_prompt_hint))
 
     NewSettingsDivider()
     NewSettingsSectionTitle(titleId = Strings.translate_settings_languages)

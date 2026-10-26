@@ -6,4 +6,5 @@ interface ReaderSelectionActionModeDelegate {
     fun onUnderline()
     fun onCopy(): Boolean
     fun onTranslate()
+    fun onExplain()
 }

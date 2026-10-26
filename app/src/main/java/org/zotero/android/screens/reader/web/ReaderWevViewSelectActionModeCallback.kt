@@ -14,6 +14,15 @@ import org.zotero.android.uicomponents.Strings
 private const val MENU_ITEM_ID_HIGHLIGHT = Menu.FIRST + 1000
 private const val MENU_ITEM_ID_UNDERLINE = Menu.FIRST + 1001
 private const val MENU_ITEM_ID_TRANSLATE = Menu.FIRST + 1002
+private const val MENU_ITEM_ID_EXPLAIN = Menu.FIRST + 1003
+private const val GOOGLE_TRANSLATE_PACKAGE = "com.google.android.apps.translate"
+
+private val ownMenuItemIds = setOf(
+    MENU_ITEM_ID_HIGHLIGHT,
+    MENU_ITEM_ID_UNDERLINE,
+    MENU_ITEM_ID_TRANSLATE,
+    MENU_ITEM_ID_EXPLAIN,
+)
 
 class ReaderWevViewSelectActionModeCallback(
     private val context: Context,
@@ -37,6 +46,21 @@ class ReaderWevViewSelectActionModeCallback(
         return item.title?.toString() == label.toString()
     }
   
+    /**
+     * The system adds its own "Translate" entry (Google Translate's text processing action or the
+     * text classifier's translate suggestion), which duplicates the reader's own translation.
+     */
+    private fun isSystemTranslateItem(item: MenuItem): Boolean {
+        val intent = item.intent
+        val targetPackage = intent?.component?.packageName ?: intent?.`package`
+        if (targetPackage == GOOGLE_TRANSLATE_PACKAGE) {
+            return true
+        }
+        val title = item.title?.toString()?.trim() ?: return false
+        return title.equals(context.getString(Strings.translate_action), ignoreCase = true) ||
+                title.equals("Translate", ignoreCase = true)
+    }
+
     override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
         return original.onCreateActionMode(mode, menu)
     }
@@ -74,12 +98,15 @@ class ReaderWevViewSelectActionModeCallback(
             Menu.NONE,
             context.getString(Strings.translate_action)
         )
+        menu.add(
+            Menu.NONE,
+            MENU_ITEM_ID_EXPLAIN,
+            Menu.NONE,
+            context.getString(Strings.explain_action)
+        )
 
         for (item in menuItems) {
-            if (item.itemId != MENU_ITEM_ID_HIGHLIGHT &&
-                item.itemId != MENU_ITEM_ID_UNDERLINE &&
-                item.itemId != MENU_ITEM_ID_TRANSLATE
-            ) {
+            if (item.itemId !in ownMenuItemIds && !isSystemTranslateItem(item)) {
                 menu.add(item.groupId, item.itemId, orderIndex++, item.title).intent = item.intent
             }
         }
@@ -103,6 +130,12 @@ class ReaderWevViewSelectActionModeCallback(
 
             MENU_ITEM_ID_TRANSLATE -> {
                 delegate()?.onTranslate()
+                mode.finish()
+                true
+            }
+
+            MENU_ITEM_ID_EXPLAIN -> {
+                delegate()?.onExplain()
                 mode.finish()
                 true
             }

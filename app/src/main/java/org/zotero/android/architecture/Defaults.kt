@@ -603,6 +603,9 @@ open class Defaults @Inject constructor(
                 openAiBaseUrl = stored.openAiBaseUrl ?: default.openAiBaseUrl,
                 openAiModel = stored.openAiModel ?: default.openAiModel,
                 openAiPrompt = stored.openAiPrompt ?: default.openAiPrompt,
+                explainPrompt = stored.explainPrompt ?: default.explainPrompt,
+                explainContextLength = stored.explainContextLength
+                    .takeIf { it > 0 } ?: default.explainContextLength,
             )
         } catch (e: Exception) {
             TranslateSettings()

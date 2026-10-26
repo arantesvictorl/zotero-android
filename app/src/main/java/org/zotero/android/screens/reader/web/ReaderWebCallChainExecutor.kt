@@ -4,6 +4,7 @@ import android.webkit.WebMessage
 import android.webkit.WebView
 import com.google.gson.Gson
 import com.google.gson.JsonArray
+import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.scopes.ViewModelScoped
 import kotlinx.coroutines.CoroutineScope
@@ -415,6 +416,83 @@ class ReaderWebCallChainExecutor @Inject constructor(
             readerWebViewHandler.evaluateJavascript("javascript:window._view.find();") {
                 cont.resume(Unit)
             }
+        }
+    }
+
+    /**
+     * Returns up to [before] characters preceding and [after] characters following [text] in the document,
+     * used as context when asking the LLM to explain a selection.
+     */
+    suspend fun getSelectionContext(
+        text: String,
+        pageIndex: Int?,
+        before: Int,
+        after: Int,
+    ): Pair<String, String>? {
+        val javascript = """
+            (function(selected, pageIndex, before, after) {
+                try {
+                    var view = window._view;
+                    if (!view) return null;
+                    var normalize = function(s) { return (s || '').replace(/\s+/g, ' ').trim(); };
+                    var text = '';
+                    if (view._pdfPages) {
+                        var pageText = function(page) {
+                            if (!page || !page.chars) return '';
+                            var parts = [];
+                            for (var i = 0; i < page.chars.length; i++) {
+                                var ch = page.chars[i];
+                                if (ch.ignorable) continue;
+                                parts.push(ch.c);
+                                if (ch.spaceAfter || ch.lineBreakAfter || ch.paragraphBreakAfter) parts.push(' ');
+                            }
+                            return parts.join('');
+                        };
+                        var center = pageIndex == null ? 0 : pageIndex;
+                        var pages = [];
+                        for (var p = Math.max(0, center - 1); p <= center + 1; p++) {
+                            pages.push(pageText(view._pdfPages[p]));
+                        }
+                        text = pages.join(' ');
+                    } else {
+                        var doc = view._iframeDocument || (view._iframeWindow && view._iframeWindow.document);
+                        text = doc && doc.body ? doc.body.innerText : '';
+                    }
+                    text = normalize(text);
+                    selected = normalize(selected);
+                    if (!text || !selected) return null;
+                    var index = text.indexOf(selected);
+                    var length = selected.length;
+                    if (index < 0) {
+                        var head = selected.slice(0, 50);
+                        index = text.indexOf(head);
+                    }
+                    if (index < 0) return null;
+                    return {
+                        before: text.slice(Math.max(0, index - before), index),
+                        after: text.slice(index + length, index + length + after)
+                    };
+                } catch (e) {
+                    return null;
+                }
+            })(${gson.toJson(text)}, ${pageIndex ?: "null"}, $before, $after);
+        """.trimIndent()
+
+        val result = suspendCancellableCoroutine { cont ->
+            readerWebViewHandler.evaluateJavascript(javascript) {
+                cont.resume(it)
+            }
+        }
+        return try {
+            val json = JsonParser.parseString(result)
+            if (!json.isJsonObject) {
+                return null
+            }
+            val obj = json.asJsonObject
+            (obj["before"]?.asString ?: "") to (obj["after"]?.asString ?: "")
+        } catch (e: Exception) {
+            Timber.w(e, "ReaderWebCallChainExecutor: can't parse selection context")
+            null
         }
     }
 

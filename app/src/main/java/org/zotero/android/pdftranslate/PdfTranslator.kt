@@ -31,21 +31,26 @@ class PdfTranslator @Inject constructor(
     private val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
             // Never log bodies or headers, they contain API keys and the user's documents.
             .addInterceptor(HttpLoggingInterceptor.createInterceptor(Level.BASIC))
             .build()
+    }
+
+    private val llmService: OpenAiCompatibleTranslateService by lazy {
+        OpenAiCompatibleTranslateService(client)
     }
 
     private val services: Map<TranslateServiceType, TranslateService> by lazy {
         mapOf(
             TranslateServiceType.google to GoogleTranslateService(client),
             TranslateServiceType.deepl to DeepLTranslateService(client),
-            TranslateServiceType.openAiCompatible to OpenAiCompatibleTranslateService(client),
+            TranslateServiceType.openAiCompatible to llmService,
         )
     }
 
     private val cache = LruCache<String, TranslateResult>(50)
+    private val explanationCache = LruCache<String, String>(20)
 
     val settings: TranslateSettings
         get() = defaults.getTranslateSettings()
@@ -66,6 +71,44 @@ class PdfTranslator @Inject constructor(
             service.translate(sourceText, settings)
         }
         cache.put(cacheKey, result)
+        return result
+    }
+
+    /**
+     * Explains [text] with the LLM configured in settings, using the surrounding document text as context.
+     */
+    suspend fun explain(
+        text: String,
+        contextBefore: String,
+        contextAfter: String,
+        title: String,
+        settings: TranslateSettings = this.settings,
+    ): String {
+        val sourceText = if (settings.cleanUpSourceText) cleanUp(text) else text.trim()
+        if (sourceText.isEmpty()) {
+            throw TranslateError.EmptyText
+        }
+        val usesDefaultOpenAiServer = settings.openAiBaseUrl.trim().trimEnd('/')
+            .ifEmpty { TranslateSettings.DEFAULT_OPEN_AI_BASE_URL } == TranslateSettings.DEFAULT_OPEN_AI_BASE_URL
+        if (usesDefaultOpenAiServer && settings.openAiApiKey.isBlank()) {
+            throw TranslateError.MissingApiKey
+        }
+        val cacheKey = listOf(
+            settings.openAiBaseUrl, settings.openAiModel, settings.explainPrompt.hashCode(),
+            settings.targetLanguage, title, contextBefore.hashCode(), contextAfter.hashCode(), sourceText
+        ).joinToString("|")
+        explanationCache.get(cacheKey)?.let { return it }
+
+        val result = withContext(dispatchers.io) {
+            llmService.explain(
+                text = sourceText,
+                contextBefore = contextBefore,
+                contextAfter = contextAfter,
+                title = title,
+                settings = settings,
+            )
+        }
+        explanationCache.put(cacheKey, result)
         return result
     }
 

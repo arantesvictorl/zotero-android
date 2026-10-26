@@ -70,6 +70,7 @@ import org.zotero.android.pdf.data.PdfReaderCurrentThemeEventStream
 import org.zotero.android.pdf.data.PdfReaderThemeDecider
 import org.zotero.android.pdftranslate.PdfTranslator
 import org.zotero.android.pdftranslate.data.TranslateError
+import org.zotero.android.pdftranslate.data.TranslateSettings
 import org.zotero.android.screens.reader.annotation.data.ReaderAnnotationArgs
 import org.zotero.android.screens.reader.annotation.data.ReaderAnnotationColorResult
 import org.zotero.android.screens.reader.annotation.data.ReaderAnnotationCommentResult
@@ -109,6 +110,8 @@ import org.zotero.android.screens.reader.sidebar.data.ReaderRequestThumbnailRend
 import org.zotero.android.screens.reader.sidebar.data.ReaderScrollReaderIfNeededEvent
 import org.zotero.android.screens.reader.sidebar.data.ReaderSliderOptions
 import org.zotero.android.screens.reader.sidebar.data.ReaderWrapperOutline
+import org.zotero.android.screens.reader.translate.ReaderAssistMode
+import org.zotero.android.screens.reader.translate.ReaderAssistResult
 import org.zotero.android.screens.reader.translate.ReaderTranslationState
 import org.zotero.android.screens.reader.web.ReaderCustomWebView
 import org.zotero.android.screens.reader.web.ReaderSelectionActionModeDelegate
@@ -172,6 +175,7 @@ class ReaderViewModel @Inject constructor(
     // when the action mode is dismissed, but it's still needed to create a highlight from the popup.
     private var translationSelectionParams: JsonObject? = null
     private var translationJob: Job? = null
+    private var explanationJob: Job? = null
     private var readerWebView: ReaderCustomWebView? = null
     private var annotations = mutableMapOf<String, ReaderAnnotation?>()
     private var texts = mutableMapOf<String, Pair<String, Map<TextStyle, String>>?>()
@@ -443,6 +447,10 @@ class ReaderViewModel @Inject constructor(
 
             override fun onTranslate() {
                 this@ReaderViewModel.onTranslateSelection()
+            }
+
+            override fun onExplain() {
+                this@ReaderViewModel.onExplainSelection()
             }
         }
         readerWebCallChainExecutor.start(webView = webView, file = this.readerFile)
@@ -2686,46 +2694,131 @@ class ReaderViewModel @Inject constructor(
     }
 
     private fun onTranslateSelection() {
+        openAssistSheet(ReaderAssistMode.translate)
+    }
+
+    private fun onExplainSelection() {
+        openAssistSheet(ReaderAssistMode.explain)
+    }
+
+    private fun openAssistSheet(mode: ReaderAssistMode) {
         val text = viewState.selectedText ?: return
         this.translationSelectionParams = this.selectedTextParams?.deepCopy()
+        val settings = pdfTranslator.settings
         updateState {
             copy(
                 translation = ReaderTranslationState(
                     sourceText = text,
-                    targetLanguage = pdfTranslator.settings.targetLanguage,
-                    service = pdfTranslator.settings.service,
+                    mode = mode,
+                    targetLanguage = settings.targetLanguage,
+                    service = settings.service,
                     canCreateAnnotation = translationSelectionParams != null,
                 )
             )
         }
-        runTranslation()
+        runAssist(mode)
     }
 
-    private fun runTranslation() {
-        val state = viewState.translation ?: return
-        translationJob?.cancel()
-        updateState {
-            copy(translation = state.copy(isLoading = true, translatedText = null, error = null))
+    fun onAssistModeSelected(mode: ReaderAssistMode) {
+        val current = viewState.translation ?: return
+        if (current.mode == mode) {
+            return
         }
-        translationJob = viewModelScope.launch {
+        updateState { copy(translation = current.copy(mode = mode)) }
+        val result = if (mode == ReaderAssistMode.translate) current.translation else current.explanation
+        if (result.text == null && !result.isLoading) {
+            runAssist(mode)
+        }
+    }
+
+    private fun runAssist(mode: ReaderAssistMode) {
+        val state = viewState.translation ?: return
+        val job = when (mode) {
+            ReaderAssistMode.translate -> translationJob
+            ReaderAssistMode.explain -> explanationJob
+        }
+        job?.cancel()
+        updateAssistResult(mode) { ReaderAssistResult(isLoading = true) }
+
+        val newJob = viewModelScope.launch {
             val settings = pdfTranslator.settings.copy(targetLanguage = state.targetLanguage)
             try {
-                val result = pdfTranslator.translate(text = state.sourceText, settings = settings)
-                updateTranslationState {
-                    copy(
-                        isLoading = false,
-                        sourceText = result.sourceText,
-                        translatedText = result.translatedText,
-                        service = result.service,
-                    )
+                val text = when (mode) {
+                    ReaderAssistMode.translate -> {
+                        val result = pdfTranslator.translate(text = state.sourceText, settings = settings)
+                        updateTranslationState { copy(service = result.service) }
+                        result.translatedText
+                    }
+
+                    ReaderAssistMode.explain -> explainSelection(state.sourceText, settings)
                 }
+                updateAssistResult(mode) { ReaderAssistResult(text = text) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Timber.e(e, "ReaderViewModel: translation failed")
-                updateTranslationState {
-                    copy(isLoading = false, error = e as? TranslateError ?: TranslateError.Network(e))
+                Timber.e(e, "ReaderViewModel: $mode failed")
+                updateAssistResult(mode) {
+                    ReaderAssistResult(error = e as? TranslateError ?: TranslateError.Network(e))
                 }
+            }
+        }
+        when (mode) {
+            ReaderAssistMode.translate -> translationJob = newJob
+            ReaderAssistMode.explain -> explanationJob = newJob
+        }
+    }
+
+    private suspend fun explainSelection(text: String, settings: TranslateSettings): String {
+        val contextLength = settings.explainContextLength
+            .coerceIn(0, TranslateSettings.MAX_EXPLAIN_CONTEXT_LENGTH)
+        val pageIndex = translationSelectionParams
+            ?.getAsJsonObject("annotation")
+            ?.getAsJsonObject("position")
+            ?.get("pageIndex")
+            ?.takeIf { it.isJsonPrimitive }
+            ?.asInt
+        // Most of the context comes before the passage, that's what usually explains it.
+        val context = if (contextLength > 0) {
+            readerWebCallChainExecutor.getSelectionContext(
+                text = text,
+                pageIndex = pageIndex,
+                before = contextLength * 3 / 4,
+                after = contextLength / 4,
+            )
+        } else {
+            null
+        }
+        return pdfTranslator.explain(
+            text = text,
+            contextBefore = context?.first.orEmpty(),
+            contextAfter = context?.second.orEmpty(),
+            title = documentTitle(),
+            settings = settings,
+        )
+    }
+
+    private fun documentTitle(): String {
+        val parentKey = this.parentKey
+        if (parentKey != null) {
+            try {
+                val parent = dbWrapperMain.realmDbStorage.perform(
+                    request = ReadItemDbRequest(libraryId = this.library.identifier, key = parentKey)
+                )
+                if (parent.displayTitle.isNotBlank()) {
+                    return parent.displayTitle
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "ReaderViewModel: can't read parent item title")
+            }
+        }
+        return this.item?.displayTitle.orEmpty()
+    }
+
+    private fun updateAssistResult(mode: ReaderAssistMode, block: ReaderAssistResult.() -> ReaderAssistResult) {
+        updateTranslationState {
+            when (mode) {
+                ReaderAssistMode.translate -> copy(translation = translation.block())
+                ReaderAssistMode.explain -> copy(explanation = explanation.block())
             }
         }
     }
@@ -2741,32 +2834,43 @@ class ReaderViewModel @Inject constructor(
             return
         }
         defaults.setTranslateSettings(pdfTranslator.settings.copy(targetLanguage = language))
-        updateState { copy(translation = current.copy(targetLanguage = language)) }
-        runTranslation()
+        updateState {
+            copy(
+                translation = current.copy(
+                    targetLanguage = language,
+                    translation = ReaderAssistResult(),
+                    explanation = ReaderAssistResult(),
+                )
+            )
+        }
+        runAssist(current.mode)
     }
 
     fun retryTranslation() {
-        runTranslation()
+        val mode = viewState.translation?.mode ?: return
+        runAssist(mode)
     }
 
     fun dismissTranslation() {
         translationJob?.cancel()
         translationJob = null
+        explanationJob?.cancel()
+        explanationJob = null
         translationSelectionParams = null
         updateState { copy(translation = null) }
     }
 
     fun copyTranslation() {
-        val text = viewState.translation?.translatedText ?: return
+        val text = viewState.translation?.current?.text ?: return
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("Translation", text))
     }
 
     fun createAnnotationWithTranslation(type: AnnotationType) {
-        val translation = viewState.translation?.translatedText ?: return
+        val comment = viewState.translation?.current?.text ?: return
         val selection = translationSelectionParams ?: return
         viewModelScope.launch {
-            saveAnnotationFromSelection(type = type, selectionParams = selection, comment = translation)
+            saveAnnotationFromSelection(type = type, selectionParams = selection, comment = comment)
             readerWebCallChainExecutor.deselectText()
             dismissTranslation()
         }

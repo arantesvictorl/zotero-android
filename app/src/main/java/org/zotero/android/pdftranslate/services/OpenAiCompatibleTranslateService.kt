@@ -19,20 +19,56 @@ import org.zotero.android.pdftranslate.data.TranslateSettings
 class OpenAiCompatibleTranslateService(private val client: OkHttpClient) : TranslateService {
 
     override fun translate(text: String, settings: TranslateSettings): TranslateResult {
+        val promptTemplate = settings.openAiPrompt.ifBlank { TranslateSettings.DEFAULT_OPEN_AI_PROMPT }
+        val prompt = fillTemplate(
+            template = withTextPlaceholder(promptTemplate),
+            values = mapOf(
+                TranslateSettings.PLACEHOLDER_SOURCE_LANGUAGE to TranslateLanguage.englishName(settings.sourceLanguage),
+                TranslateSettings.PLACEHOLDER_TARGET_LANGUAGE to TranslateLanguage.englishName(settings.targetLanguage),
+                TranslateSettings.PLACEHOLDER_TEXT to text,
+            )
+        )
+        val translated = complete(prompt = prompt, settings = settings)
+            .removePrefix("🔤").removeSuffix("🔤").trim()
+        if (translated.isEmpty()) {
+            throw TranslateError.EmptyResponse
+        }
+        return TranslateResult(
+            sourceText = text,
+            translatedText = translated,
+            service = TranslateServiceType.openAiCompatible,
+            targetLanguage = settings.targetLanguage,
+        )
+    }
+
+    /**
+     * Explains [text] using the surrounding text of the document as context.
+     */
+    fun explain(
+        text: String,
+        contextBefore: String,
+        contextAfter: String,
+        title: String,
+        settings: TranslateSettings,
+    ): String {
+        val promptTemplate = settings.explainPrompt.ifBlank { TranslateSettings.DEFAULT_EXPLAIN_PROMPT }
+        val prompt = fillTemplate(
+            template = withTextPlaceholder(promptTemplate),
+            values = mapOf(
+                TranslateSettings.PLACEHOLDER_TARGET_LANGUAGE to TranslateLanguage.englishName(settings.targetLanguage),
+                TranslateSettings.PLACEHOLDER_TITLE to title.ifBlank { "unknown" },
+                TranslateSettings.PLACEHOLDER_CONTEXT_BEFORE to contextBefore,
+                TranslateSettings.PLACEHOLDER_CONTEXT_AFTER to contextAfter,
+                TranslateSettings.PLACEHOLDER_TEXT to text,
+            )
+        )
+        return complete(prompt = prompt, settings = settings)
+    }
+
+    private fun complete(prompt: String, settings: TranslateSettings): String {
         val baseUrl = settings.openAiBaseUrl.trim().trimEnd('/')
             .ifEmpty { TranslateSettings.DEFAULT_OPEN_AI_BASE_URL }
         val model = settings.openAiModel.trim().ifEmpty { TranslateSettings.DEFAULT_OPEN_AI_MODEL }
-        val promptTemplate = settings.openAiPrompt.ifBlank { TranslateSettings.DEFAULT_OPEN_AI_PROMPT }
-
-        val prompt = if (promptTemplate.contains(TranslateSettings.PLACEHOLDER_TEXT)) {
-            promptTemplate
-        } else {
-            // Custom prompt without the text placeholder, append the text at the end.
-            "$promptTemplate\n\n${TranslateSettings.PLACEHOLDER_TEXT}"
-        }
-            .replace(TranslateSettings.PLACEHOLDER_SOURCE_LANGUAGE, TranslateLanguage.englishName(settings.sourceLanguage))
-            .replace(TranslateSettings.PLACEHOLDER_TARGET_LANGUAGE, TranslateLanguage.englishName(settings.targetLanguage))
-            .replace(TranslateSettings.PLACEHOLDER_TEXT, text)
 
         val json = JsonObject().apply {
             addProperty("model", model)
@@ -52,7 +88,7 @@ class OpenAiCompatibleTranslateService(private val client: OkHttpClient) : Trans
         }
 
         val body = client.executeForBody(requestBuilder.build())
-        val translated = try {
+        val content = try {
             JsonParser.parseString(body).asJsonObject
                 .getAsJsonArray("choices")
                 .get(0).asJsonObject
@@ -60,16 +96,33 @@ class OpenAiCompatibleTranslateService(private val client: OkHttpClient) : Trans
                 .get("content").asString
         } catch (e: Exception) {
             throw TranslateError.EmptyResponse
-        }.trim().removePrefix("🔤").removeSuffix("🔤").trim()
-
-        if (translated.isEmpty()) {
+        }.trim()
+        if (content.isEmpty()) {
             throw TranslateError.EmptyResponse
         }
-        return TranslateResult(
-            sourceText = text,
-            translatedText = translated,
-            service = TranslateServiceType.openAiCompatible,
-            targetLanguage = settings.targetLanguage,
-        )
+        return content
+    }
+
+    private fun withTextPlaceholder(template: String): String {
+        return if (template.contains(TranslateSettings.PLACEHOLDER_TEXT)) {
+            template
+        } else {
+            // Custom prompt without the text placeholder, append the text at the end.
+            "$template\n\n${TranslateSettings.PLACEHOLDER_TEXT}"
+        }
+    }
+
+    companion object {
+        private val placeholderRegex = Regex("\\{[A-Za-z]+\\}")
+
+        /**
+         * Replaces all placeholders in a single pass, so placeholders that happen to appear in the
+         * document text itself are left untouched.
+         */
+        fun fillTemplate(template: String, values: Map<String, String>): String {
+            return placeholderRegex.replace(template) { match ->
+                values[match.value] ?: match.value
+            }
+        }
     }
 }

@@ -25,6 +25,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -35,6 +37,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -59,6 +68,7 @@ internal fun ReaderTranslationView(
         onRetry = viewModel::retryTranslation,
         onCopy = viewModel::copyTranslation,
         onCreateAnnotation = viewModel::createAnnotationWithTranslation,
+        onModeSelected = viewModel::onAssistModeSelected,
     )
 }
 
@@ -71,6 +81,7 @@ private fun ReaderTranslationSheet(
     onRetry: () -> Unit,
     onCopy: () -> Unit,
     onCreateAnnotation: (AnnotationType) -> Unit,
+    onModeSelected: (ReaderAssistMode) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
     ModalBottomSheet(
@@ -86,19 +97,33 @@ private fun ReaderTranslationSheet(
                 .padding(bottom = 16.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
+                PrimaryTabRow(
                     modifier = Modifier.weight(1f),
-                    text = stringResource(Strings.translate_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+                    selectedTabIndex = state.mode.ordinal,
+                    containerColor = Color.Transparent,
+                ) {
+                    Tab(
+                        selected = state.mode == ReaderAssistMode.translate,
+                        onClick = { onModeSelected(ReaderAssistMode.translate) },
+                        text = { Text(stringResource(Strings.translate_action)) },
+                    )
+                    Tab(
+                        selected = state.mode == ReaderAssistMode.explain,
+                        onClick = { onModeSelected(ReaderAssistMode.explain) },
+                        text = { Text(stringResource(Strings.explain_action)) },
+                    )
+                }
                 TargetLanguagePicker(
                     selected = state.targetLanguage,
                     onSelected = onTargetLanguageChanged,
                 )
             }
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = serviceName(state.service),
+                text = when (state.mode) {
+                    ReaderAssistMode.translate -> serviceName(state.service)
+                    ReaderAssistMode.explain -> stringResource(Strings.explain_service_label)
+                },
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -119,11 +144,11 @@ private fun ReaderTranslationSheet(
                     )
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-                TranslationContent(state = state, onRetry = onRetry)
+                AssistContent(mode = state.mode, result = state.current, onRetry = onRetry)
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-            val hasTranslation = state.translatedText != null && !state.isLoading
+            val hasTranslation = state.current.hasResult
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
@@ -137,13 +162,29 @@ private fun ReaderTranslationSheet(
                         onClick = { onCreateAnnotation(AnnotationType.underline) },
                         enabled = hasTranslation
                     ) {
-                        Text(stringResource(Strings.translate_underline_with_translation))
+                        Text(
+                            stringResource(
+                                if (state.mode == ReaderAssistMode.translate) {
+                                    Strings.translate_underline_with_translation
+                                } else {
+                                    Strings.explain_underline_with_explanation
+                                }
+                            )
+                        )
                     }
                     FilledTonalButton(
                         onClick = { onCreateAnnotation(AnnotationType.highlight) },
                         enabled = hasTranslation
                     ) {
-                        Text(stringResource(Strings.translate_highlight_with_translation))
+                        Text(
+                            stringResource(
+                                if (state.mode == ReaderAssistMode.translate) {
+                                    Strings.translate_highlight_with_translation
+                                } else {
+                                    Strings.explain_highlight_with_explanation
+                                }
+                            )
+                        )
                     }
                 }
             }
@@ -152,17 +193,26 @@ private fun ReaderTranslationSheet(
 }
 
 @Composable
-private fun TranslationContent(state: ReaderTranslationState, onRetry: () -> Unit) {
-    val error = state.error
+private fun AssistContent(mode: ReaderAssistMode, result: ReaderAssistResult, onRetry: () -> Unit) {
+    val error = result.error
+    val text = result.text
     when {
-        state.isLoading -> {
-            Box(
+        result.isLoading -> {
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 16.dp),
-                contentAlignment = Alignment.Center
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 CircularProgressIndicator(modifier = Modifier.size(32.dp), strokeWidth = 2.dp)
+                if (mode == ReaderAssistMode.explain) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(Strings.explain_loading),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
 
@@ -179,13 +229,53 @@ private fun TranslationContent(state: ReaderTranslationState, onRetry: () -> Uni
             }
         }
 
-        state.translatedText != null -> {
+        text != null -> {
             SelectionContainer {
                 Text(
-                    text = state.translatedText,
+                    text = if (mode == ReaderAssistMode.explain) simpleMarkdown(text) else AnnotatedString(text),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
+            }
+        }
+    }
+}
+
+/**
+ * LLMs answer in Markdown. Renders the common bits (headings, bold, bullets, inline code)
+ * instead of showing raw asterisks.
+ */
+private fun simpleMarkdown(markdown: String): AnnotatedString {
+    val inlineRegex = Regex("\\*\\*(.+?)\\*\\*|__(.+?)__|`([^`]+)`")
+    return buildAnnotatedString {
+        markdown.trim().lines().forEachIndexed { index, rawLine ->
+            if (index > 0) append('\n')
+            var line = rawLine
+            var isHeading = false
+            val heading = Regex("^\\s{0,3}#{1,6}\\s+").find(line)
+            if (heading != null) {
+                line = line.substring(heading.range.last + 1)
+                isHeading = true
+            }
+            val bullet = Regex("^(\\s*)[-*+]\\s+").find(line)
+            if (bullet != null) {
+                line = bullet.groupValues[1] + "• " + line.substring(bullet.range.last + 1)
+            }
+            val start = length
+            var last = 0
+            for (match in inlineRegex.findAll(line)) {
+                append(line.substring(last, match.range.first))
+                val bold = match.groups[1]?.value ?: match.groups[2]?.value
+                if (bold != null) {
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(bold) }
+                } else {
+                    withStyle(SpanStyle(fontFamily = FontFamily.Monospace)) { append(match.groupValues[3]) }
+                }
+                last = match.range.last + 1
+            }
+            append(line.substring(last))
+            if (isHeading) {
+                addStyle(SpanStyle(fontWeight = FontWeight.Bold), start, length)
             }
         }
     }
