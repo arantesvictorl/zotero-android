@@ -1,0 +1,106 @@
+name: Debug APK
+
+# Builds an installable debug APK without any of the release secrets
+# (PSPDFKit key, signing keystore, Firebase config).
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'claude/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: set up JDK
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'zulu'
+          cache: gradle
+
+      - name: set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.10'
+
+      - name: Placeholder Firebase config (crash reporting is disabled in debug builds)
+        run: |
+          cat > app/google-services.json <<'EOF'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "zotero-debug-placeholder",
+              "storage_bucket": "zotero-debug-placeholder.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000001",
+                  "android_client_info": { "package_name": "org.zotero.android.debug" }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyA00000000000000000000000000000000" } ],
+                "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+              },
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000002",
+                  "android_client_info": { "package_name": "org.zotero.android" }
+                },
+                "oauth_client": [],
+                "api_key": [ { "current_key": "AIzaSyA00000000000000000000000000000000" } ],
+                "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+
+      - name: Bundle assets
+        run: |
+          chmod +x scripts/*.py scripts/*.sh gradlew
+          python3 scripts/bundle_translators.py
+          python3 scripts/bundle_translation.py
+          python3 scripts/bundle_pdf-worker.py
+          python3 scripts/bundle_citation_proc.py
+          python3 scripts/bundle_csl_locales.py
+          python3 scripts/bundle_styles.py
+          scripts/bundle_utilities.sh
+          scripts/bundle_reader.sh
+          scripts/bundle_document-worker.sh
+
+      - name: Build debug APK
+        run: |
+          ./gradlew --no-configuration-cache -PpreDexLibs=false \
+            -PciBuildNumber=${{ github.run_number }} \
+            -PciRepository=${{ github.repository }} \
+            assembleDevDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: zotero-debug-apk
+          path: app/build/outputs/apk/dev/debug/*.apk
+          if-no-files-found: error
+
+      # Read by the in-app updater (Settings > Check for updates): "build=" must match ciBuildNumber.
+      - name: Publish debug-latest pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/dev/debug/*.apk zotero-debug.apk
+          printf 'build=%s\ncommit=%s\nbranch=%s\n' "$GITHUB_RUN_NUMBER" "$GITHUB_SHA" "$GITHUB_REF_NAME" > notes.txt
+          gh release delete debug-latest --yes --cleanup-tag || true
+          gh release create debug-latest zotero-debug.apk \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Zotero Debug #${GITHUB_RUN_NUMBER}" \
+            --notes-file notes.txt

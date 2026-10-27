@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.RectF
+import android.widget.Toast
 import androidx.compose.ui.text.TextStyle
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
@@ -13,6 +14,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import io.realm.OrderedCollectionChangeSet
 import io.realm.RealmObjectChangeListener
 import io.realm.RealmResults
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,6 +69,10 @@ import org.zotero.android.ktx.rounded
 import org.zotero.android.pdf.data.PDFDocumentAnnotation
 import org.zotero.android.pdf.data.PdfReaderCurrentThemeEventStream
 import org.zotero.android.pdf.data.PdfReaderThemeDecider
+import org.zotero.android.pdftranslate.PdfTranslator
+import org.zotero.android.pdftranslate.data.LlmAction
+import org.zotero.android.pdftranslate.data.TranslateError
+import org.zotero.android.pdftranslate.data.TranslateSettings
 import org.zotero.android.screens.reader.annotation.data.ReaderAnnotationArgs
 import org.zotero.android.screens.reader.annotation.data.ReaderAnnotationColorResult
 import org.zotero.android.screens.reader.annotation.data.ReaderAnnotationCommentResult
@@ -106,6 +112,8 @@ import org.zotero.android.screens.reader.sidebar.data.ReaderRequestThumbnailRend
 import org.zotero.android.screens.reader.sidebar.data.ReaderScrollReaderIfNeededEvent
 import org.zotero.android.screens.reader.sidebar.data.ReaderSliderOptions
 import org.zotero.android.screens.reader.sidebar.data.ReaderWrapperOutline
+import org.zotero.android.screens.reader.translate.ReaderAssistResult
+import org.zotero.android.screens.reader.translate.ReaderTranslationState
 import org.zotero.android.screens.reader.web.ReaderCustomWebView
 import org.zotero.android.screens.reader.web.ReaderSelectionActionModeDelegate
 import org.zotero.android.screens.reader.web.ReaderWebCallChainEventStream
@@ -152,6 +160,7 @@ class ReaderViewModel @Inject constructor(
     private val lastReadWatcher: LastReadWatcher,
     private val progressHandler: SyncProgressHandler,
     private val documentWorkerController: DocumentWorkerController,
+    private val pdfTranslator: PdfTranslator,
 
     stateHandle: SavedStateHandle,
 ) : BaseViewModel2<ReaderViewState, ReaderViewEffect>(ReaderViewState())  {
@@ -163,6 +172,13 @@ class ReaderViewModel @Inject constructor(
     private var userId: Long = 0L
     private var username: String = ""
     private var selectedTextParams: JsonObject? = null
+    // Copy of the selection the translation popup was opened for. The selection itself gets cleared
+    // when the action mode is dismissed, but it's still needed to create a highlight from the popup.
+    private var translationSelectionParams: JsonObject? = null
+    // Running translation / LLM action requests of the selection sheet, by tab.
+    private val assistJobs = mutableMapOf<String, Job>()
+    // Area selections open the sheet on the tab used last.
+    private var lastAssistTab: String = ReaderTranslationState.TRANSLATE_TAB
     private var readerWebView: ReaderCustomWebView? = null
     private var annotations = mutableMapOf<String, ReaderAnnotation?>()
     private var texts = mutableMapOf<String, Pair<String, Map<TextStyle, String>>?>()
@@ -420,6 +436,8 @@ class ReaderViewModel @Inject constructor(
     fun initEveryTime(webView: ReaderCustomWebView) {
         restartDisableForceScreenOnTimer()
         this.readerWebView = webView
+        webView.areaSelectionArmed = viewState.areaSelectionArmed
+        webView.onAreaSelected = { rect -> onAreaSelected(rect) }
         webView.selectionActionModeDelegate = object : ReaderSelectionActionModeDelegate {
             override fun hasValidSelection(): Boolean = viewState.selectedText != null
             override fun onHighlight() {
@@ -431,6 +449,16 @@ class ReaderViewModel @Inject constructor(
             }
 
             override fun onCopy(): Boolean = copySelectedTextToClipboard()
+
+            override fun onTranslate() {
+                this@ReaderViewModel.onTranslateSelection()
+            }
+
+            override fun llmActions(): List<LlmAction> = pdfTranslator.settings.llmActions
+
+            override fun onLlmAction(actionId: String) {
+                this@ReaderViewModel.onLlmActionSelected(actionId)
+            }
         }
         readerWebCallChainExecutor.start(webView = webView, file = this.readerFile)
     }
@@ -694,10 +722,17 @@ class ReaderViewModel @Inject constructor(
     }
 
 
-    private suspend fun saveAnnotationFromSelection(type: AnnotationType) {
+    /**
+     * @return key of the created annotation.
+     */
+    private suspend fun saveAnnotationFromSelection(
+        type: AnnotationType,
+        selectionParams: JsonObject? = this.selectedTextParams,
+        comment: String = "",
+    ): String? {
         val textParams =
-            this.selectedTextParams?.get("annotation")?.asJsonObject ?: return
-        val params = params(textParams, type) ?: return
+            selectionParams?.get("annotation")?.asJsonObject ?: return null
+        val params = params(textParams, type, comment) ?: return null
 
         val annotations = if (viewState.fileType == ReaderFileType.PDF) {
             parsePdfJson(
@@ -728,10 +763,11 @@ class ReaderViewModel @Inject constructor(
         } else {
             createHtmlEpubDatabaseAnnotations(annotations = annotations as List<NewReaderAnnotation>)
         }
+        return params["id"]?.asString
     }
 
 
-    private fun params(textParams: JsonObject, type: AnnotationType): JsonObject? {
+    private fun params(textParams: JsonObject, type: AnnotationType, comment: String = ""): JsonObject? {
         val color: String
         when(type) {
             AnnotationType.highlight -> {
@@ -754,7 +790,7 @@ class ReaderViewModel @Inject constructor(
         params.addProperty("dateCreated", iso8601DateFormatV3.format(date))
         params.add("tags", JsonArray())
         params.addProperty("pageLabel", "")
-        params.addProperty("comment", "")
+        params.addProperty("comment", comment)
         return params
     }
 
@@ -2625,13 +2661,249 @@ class ReaderViewModel @Inject constructor(
     }
 
     private fun onHighlight() = viewModelScope.launch {
-        saveAnnotationFromSelection(AnnotationType.highlight)
+        val text = viewState.selectedText
+        val key = saveAnnotationFromSelection(AnnotationType.highlight)
         readerWebCallChainExecutor.deselectText()
+        addTranslationToCommentIfEnabled(key = key, text = text)
     }
 
     private fun onUnderline() = viewModelScope.launch {
-        saveAnnotationFromSelection(AnnotationType.underline)
+        val text = viewState.selectedText
+        val key = saveAnnotationFromSelection(AnnotationType.underline)
         readerWebCallChainExecutor.deselectText()
+        addTranslationToCommentIfEnabled(key = key, text = text)
+    }
+
+    /**
+     * Same as the "Add translation to annotation comment" option of zotero-pdf-translate.
+     */
+    private fun addTranslationToCommentIfEnabled(key: String?, text: String?) {
+        if (key == null || text.isNullOrBlank()) {
+            return
+        }
+        val settings = pdfTranslator.settings
+        if (!settings.addTranslationToAnnotationComment) {
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val result = pdfTranslator.translate(text = text, settings = settings)
+                // Don't overwrite a comment the user typed in the meantime.
+                if (this@ReaderViewModel.annotations[key]?.comment.isNullOrEmpty() &&
+                    this@ReaderViewModel.comments[key].isNullOrEmpty()
+                ) {
+                    setComment(key = key, comment = result.translatedText)
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "ReaderViewModel: can't translate annotation $key")
+            }
+        }
+    }
+
+    private fun onTranslateSelection() {
+        openAssistSheet(ReaderTranslationState.TRANSLATE_TAB)
+    }
+
+    private fun onLlmActionSelected(actionId: String) {
+        openAssistSheet(actionId)
+    }
+
+    private fun openAssistSheet(
+        requestedTab: String,
+        text: String? = viewState.selectedText,
+        selectionParams: JsonObject? = this.selectedTextParams?.deepCopy(),
+    ) {
+        if (text.isNullOrBlank()) {
+            return
+        }
+        this.translationSelectionParams = selectionParams
+        val settings = pdfTranslator.settings
+        val tab = requestedTab.takeIf { tab ->
+            tab == ReaderTranslationState.TRANSLATE_TAB || settings.llmActions.any { it.id == tab }
+        } ?: ReaderTranslationState.TRANSLATE_TAB
+        this.lastAssistTab = tab
+        updateState {
+            copy(
+                translation = ReaderTranslationState(
+                    sourceText = text,
+                    selectedTab = tab,
+                    targetLanguage = settings.targetLanguage,
+                    service = settings.service,
+                    canCreateAnnotation = translationSelectionParams != null,
+                    actions = settings.llmActions.filter { it.name.isNotBlank() },
+                )
+            )
+        }
+        runAssist(tab)
+    }
+
+    fun onAssistTabSelected(tab: String) {
+        val current = viewState.translation ?: return
+        if (current.selectedTab == tab) {
+            return
+        }
+        this.lastAssistTab = tab
+        updateState { copy(translation = current.copy(selectedTab = tab)) }
+        val result = current.results[tab]
+        if (result == null || (result.text == null && !result.isLoading && result.error == null)) {
+            runAssist(tab)
+        }
+    }
+
+    fun toggleAreaSelection() {
+        setAreaSelectionArmed(!viewState.areaSelectionArmed)
+    }
+
+    private fun setAreaSelectionArmed(armed: Boolean) {
+        readerWebView?.areaSelectionArmed = armed
+        updateState { copy(areaSelectionArmed = armed) }
+    }
+
+    /**
+     * A rectangle was drawn over the document (S Pen side button or toolbar button): takes the text
+     * inside it and opens the translation sheet on the last used tab.
+     */
+    private fun onAreaSelected(rect: RectF) {
+        setAreaSelectionArmed(false)
+        viewModelScope.launch {
+            val params = readerWebCallChainExecutor.getTextInArea(rect)
+            val text = params?.getAsJsonObject("annotation")
+                ?.get("text")
+                ?.takeIf { it.isJsonPrimitive }
+                ?.asString
+            if (params == null || text.isNullOrBlank()) {
+                Toast.makeText(context, Strings.area_selection_empty, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            openAssistSheet(requestedTab = lastAssistTab, text = text, selectionParams = params)
+        }
+    }
+
+    private fun runAssist(tab: String) {
+        val state = viewState.translation ?: return
+        assistJobs.remove(tab)?.cancel()
+        updateAssistResult(tab) { ReaderAssistResult(isLoading = true) }
+
+        assistJobs[tab] = viewModelScope.launch {
+            val settings = pdfTranslator.settings.copy(targetLanguage = state.targetLanguage)
+            try {
+                val text = if (tab == ReaderTranslationState.TRANSLATE_TAB) {
+                    val result = pdfTranslator.translate(text = state.sourceText, settings = settings)
+                    updateTranslationState { copy(service = result.service) }
+                    result.translatedText
+                } else {
+                    val action = state.actions.firstOrNull { it.id == tab } ?: return@launch
+                    runLlmAction(action = action, text = state.sourceText, settings = settings)
+                }
+                updateAssistResult(tab) { ReaderAssistResult(text = text) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "ReaderViewModel: assist $tab failed")
+                updateAssistResult(tab) {
+                    ReaderAssistResult(error = e as? TranslateError ?: TranslateError.Network(e))
+                }
+            }
+        }
+    }
+
+    private suspend fun runLlmAction(action: LlmAction, text: String, settings: TranslateSettings): String {
+        val contextLength = settings.contextLength.coerceIn(0, TranslateSettings.MAX_CONTEXT_LENGTH)
+        val pageIndex = translationSelectionParams
+            ?.getAsJsonObject("annotation")
+            ?.getAsJsonObject("position")
+            ?.get("pageIndex")
+            ?.takeIf { it.isJsonPrimitive }
+            ?.asInt
+        // Most of the context comes before the passage, that's what usually explains it.
+        val context = if (action.useContext && contextLength > 0) {
+            readerWebCallChainExecutor.getSelectionContext(
+                text = text,
+                pageIndex = pageIndex,
+                before = contextLength * 3 / 4,
+                after = contextLength / 4,
+            )
+        } else {
+            null
+        }
+        return pdfTranslator.runAction(
+            action = action,
+            text = text,
+            contextBefore = context?.first.orEmpty(),
+            contextAfter = context?.second.orEmpty(),
+            title = documentTitle(),
+            settings = settings,
+        )
+    }
+
+    private fun documentTitle(): String {
+        val parentKey = this.parentKey
+        if (parentKey != null) {
+            try {
+                val parent = dbWrapperMain.realmDbStorage.perform(
+                    request = ReadItemDbRequest(libraryId = this.library.identifier, key = parentKey)
+                )
+                if (parent.displayTitle.isNotBlank()) {
+                    return parent.displayTitle
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "ReaderViewModel: can't read parent item title")
+            }
+        }
+        return this.item?.displayTitle.orEmpty()
+    }
+
+    private fun updateAssistResult(tab: String, block: ReaderAssistResult.() -> ReaderAssistResult) {
+        updateTranslationState {
+            copy(results = results + (tab to (results[tab] ?: ReaderAssistResult()).block()))
+        }
+    }
+
+    private fun updateTranslationState(block: ReaderTranslationState.() -> ReaderTranslationState) {
+        val current = viewState.translation ?: return
+        updateState { copy(translation = current.block()) }
+    }
+
+    fun onTranslationTargetLanguageChanged(language: String) {
+        val current = viewState.translation ?: return
+        if (current.targetLanguage == language) {
+            return
+        }
+        defaults.setTranslateSettings(pdfTranslator.settings.copy(targetLanguage = language))
+        assistJobs.values.forEach { it.cancel() }
+        assistJobs.clear()
+        updateState {
+            copy(translation = current.copy(targetLanguage = language, results = emptyMap()))
+        }
+        runAssist(current.selectedTab)
+    }
+
+    fun retryTranslation() {
+        val tab = viewState.translation?.selectedTab ?: return
+        runAssist(tab)
+    }
+
+    fun dismissTranslation() {
+        assistJobs.values.forEach { it.cancel() }
+        assistJobs.clear()
+        translationSelectionParams = null
+        updateState { copy(translation = null) }
+    }
+
+    fun copyTranslation() {
+        val text = viewState.translation?.current?.text ?: return
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("Translation", text))
+    }
+
+    fun createAnnotationWithTranslation(type: AnnotationType) {
+        val comment = viewState.translation?.current?.text ?: return
+        val selection = translationSelectionParams ?: return
+        viewModelScope.launch {
+            saveAnnotationFromSelection(type = type, selectionParams = selection, comment = comment)
+            readerWebCallChainExecutor.deselectText()
+            dismissTranslation()
+        }
     }
 
     fun navigatePageHistoryBack() {
@@ -2745,6 +3017,8 @@ class ReaderViewModel @Inject constructor(
 
 data class ReaderViewState(
     val selectedText: String? = null,
+    val translation: ReaderTranslationState? = null,
+    val areaSelectionArmed: Boolean = false,
     val isDark: Boolean = false,
     val error: ReaderViewModel.Error? = null,
     val activeTool: ReaderAnnotationTool? = null,

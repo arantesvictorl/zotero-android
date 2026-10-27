@@ -13,6 +13,18 @@ import org.zotero.android.uicomponents.Strings
 
 private const val MENU_ITEM_ID_HIGHLIGHT = Menu.FIRST + 1000
 private const val MENU_ITEM_ID_UNDERLINE = Menu.FIRST + 1001
+private const val MENU_ITEM_ID_TRANSLATE = Menu.FIRST + 1002
+// LLM actions get consecutive ids starting from here.
+private const val MENU_ITEM_ID_LLM_ACTION_FIRST = Menu.FIRST + 1100
+private const val MAX_LLM_ACTIONS_IN_MENU = 50
+private const val GOOGLE_TRANSLATE_PACKAGE = "com.google.android.apps.translate"
+
+private fun isOwnMenuItem(itemId: Int): Boolean {
+    return itemId == MENU_ITEM_ID_HIGHLIGHT ||
+            itemId == MENU_ITEM_ID_UNDERLINE ||
+            itemId == MENU_ITEM_ID_TRANSLATE ||
+            itemId in MENU_ITEM_ID_LLM_ACTION_FIRST until MENU_ITEM_ID_LLM_ACTION_FIRST + MAX_LLM_ACTIONS_IN_MENU
+}
 
 class ReaderWevViewSelectActionModeCallback(
     private val context: Context,
@@ -22,6 +34,9 @@ class ReaderWevViewSelectActionModeCallback(
 ) : ActionMode.Callback2() {
 
     private var originalMenuPrepared = false
+
+    // Action ids for the LLM action menu items currently shown, by position.
+    private var shownLlmActionIds: List<String> = emptyList()
 
     private val frameworkCopyLabel: CharSequence? by lazy {
         val resId = Resources.getSystem().getIdentifier("copy", "string", "android")
@@ -36,6 +51,21 @@ class ReaderWevViewSelectActionModeCallback(
         return item.title?.toString() == label.toString()
     }
   
+    /**
+     * The system adds its own "Translate" entry (Google Translate's text processing action or the
+     * text classifier's translate suggestion), which duplicates the reader's own translation.
+     */
+    private fun isSystemTranslateItem(item: MenuItem): Boolean {
+        val intent = item.intent
+        val targetPackage = intent?.component?.packageName ?: intent?.`package`
+        if (targetPackage == GOOGLE_TRANSLATE_PACKAGE) {
+            return true
+        }
+        val title = item.title?.toString()?.trim() ?: return false
+        return title.equals(context.getString(Strings.translate_action), ignoreCase = true) ||
+                title.equals("Translate", ignoreCase = true)
+    }
+
     override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
         return original.onCreateActionMode(mode, menu)
     }
@@ -67,9 +97,22 @@ class ReaderWevViewSelectActionModeCallback(
             Menu.NONE,
             context.getString(Strings.pdf_underline)
         )
+        menu.add(
+            Menu.NONE,
+            MENU_ITEM_ID_TRANSLATE,
+            Menu.NONE,
+            context.getString(Strings.translate_action)
+        )
+        val llmActions = delegate()?.llmActions().orEmpty()
+            .filter { it.name.isNotBlank() }
+            .take(MAX_LLM_ACTIONS_IN_MENU)
+        shownLlmActionIds = llmActions.map { it.id }
+        llmActions.forEachIndexed { index, action ->
+            menu.add(Menu.NONE, MENU_ITEM_ID_LLM_ACTION_FIRST + index, Menu.NONE, action.name)
+        }
 
         for (item in menuItems) {
-            if (item.itemId != MENU_ITEM_ID_HIGHLIGHT && item.itemId != MENU_ITEM_ID_UNDERLINE) {
+            if (!isOwnMenuItem(item.itemId) && !isSystemTranslateItem(item)) {
                 menu.add(item.groupId, item.itemId, orderIndex++, item.title).intent = item.intent
             }
         }
@@ -87,6 +130,21 @@ class ReaderWevViewSelectActionModeCallback(
 
             MENU_ITEM_ID_UNDERLINE -> {
                 delegate()?.onUnderline()
+                mode.finish()
+                true
+            }
+
+            MENU_ITEM_ID_TRANSLATE -> {
+                delegate()?.onTranslate()
+                mode.finish()
+                true
+            }
+
+            in MENU_ITEM_ID_LLM_ACTION_FIRST until MENU_ITEM_ID_LLM_ACTION_FIRST + MAX_LLM_ACTIONS_IN_MENU -> {
+                val actionId = shownLlmActionIds.getOrNull(item.itemId - MENU_ITEM_ID_LLM_ACTION_FIRST)
+                if (actionId != null) {
+                    delegate()?.onLlmAction(actionId)
+                }
                 mode.finish()
                 true
             }
