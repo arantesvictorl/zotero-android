@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.RectF
+import android.widget.Toast
 import androidx.compose.ui.text.TextStyle
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
@@ -176,6 +177,8 @@ class ReaderViewModel @Inject constructor(
     private var translationSelectionParams: JsonObject? = null
     // Running translation / LLM action requests of the selection sheet, by tab.
     private val assistJobs = mutableMapOf<String, Job>()
+    // Area selections open the sheet on the tab used last.
+    private var lastAssistTab: String = ReaderTranslationState.TRANSLATE_TAB
     private var readerWebView: ReaderCustomWebView? = null
     private var annotations = mutableMapOf<String, ReaderAnnotation?>()
     private var texts = mutableMapOf<String, Pair<String, Map<TextStyle, String>>?>()
@@ -433,6 +436,8 @@ class ReaderViewModel @Inject constructor(
     fun initEveryTime(webView: ReaderCustomWebView) {
         restartDisableForceScreenOnTimer()
         this.readerWebView = webView
+        webView.areaSelectionArmed = viewState.areaSelectionArmed
+        webView.onAreaSelected = { rect -> onAreaSelected(rect) }
         webView.selectionActionModeDelegate = object : ReaderSelectionActionModeDelegate {
             override fun hasValidSelection(): Boolean = viewState.selectedText != null
             override fun onHighlight() {
@@ -2703,10 +2708,20 @@ class ReaderViewModel @Inject constructor(
         openAssistSheet(actionId)
     }
 
-    private fun openAssistSheet(tab: String) {
-        val text = viewState.selectedText ?: return
-        this.translationSelectionParams = this.selectedTextParams?.deepCopy()
+    private fun openAssistSheet(
+        requestedTab: String,
+        text: String? = viewState.selectedText,
+        selectionParams: JsonObject? = this.selectedTextParams?.deepCopy(),
+    ) {
+        if (text.isNullOrBlank()) {
+            return
+        }
+        this.translationSelectionParams = selectionParams
         val settings = pdfTranslator.settings
+        val tab = requestedTab.takeIf { tab ->
+            tab == ReaderTranslationState.TRANSLATE_TAB || settings.llmActions.any { it.id == tab }
+        } ?: ReaderTranslationState.TRANSLATE_TAB
+        this.lastAssistTab = tab
         updateState {
             copy(
                 translation = ReaderTranslationState(
@@ -2727,10 +2742,40 @@ class ReaderViewModel @Inject constructor(
         if (current.selectedTab == tab) {
             return
         }
+        this.lastAssistTab = tab
         updateState { copy(translation = current.copy(selectedTab = tab)) }
         val result = current.results[tab]
         if (result == null || (result.text == null && !result.isLoading && result.error == null)) {
             runAssist(tab)
+        }
+    }
+
+    fun toggleAreaSelection() {
+        setAreaSelectionArmed(!viewState.areaSelectionArmed)
+    }
+
+    private fun setAreaSelectionArmed(armed: Boolean) {
+        readerWebView?.areaSelectionArmed = armed
+        updateState { copy(areaSelectionArmed = armed) }
+    }
+
+    /**
+     * A rectangle was drawn over the document (S Pen side button or toolbar button): takes the text
+     * inside it and opens the translation sheet on the last used tab.
+     */
+    private fun onAreaSelected(rect: RectF) {
+        setAreaSelectionArmed(false)
+        viewModelScope.launch {
+            val params = readerWebCallChainExecutor.getTextInArea(rect)
+            val text = params?.getAsJsonObject("annotation")
+                ?.get("text")
+                ?.takeIf { it.isJsonPrimitive }
+                ?.asString
+            if (params == null || text.isNullOrBlank()) {
+                Toast.makeText(context, Strings.area_selection_empty, Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            openAssistSheet(requestedTab = lastAssistTab, text = text, selectionParams = params)
         }
     }
 
@@ -2973,6 +3018,7 @@ class ReaderViewModel @Inject constructor(
 data class ReaderViewState(
     val selectedText: String? = null,
     val translation: ReaderTranslationState? = null,
+    val areaSelectionArmed: Boolean = false,
     val isDark: Boolean = false,
     val error: ReaderViewModel.Error? = null,
     val activeTool: ReaderAnnotationTool? = null,

@@ -67,4 +67,6 @@
     <string name="update_no_release">Nenhum build foi publicado no GitHub ainda.</string>
     <string name="update_error">Não foi possível verificar atualizações: %1$s</string>
     <string name="update_hint">Os builds vêm da pre-release debug-latest deste fork, publicada pelo GitHub Actions a cada push. Sua biblioteca e suas configurações são mantidas na atualização.</string>
+    <string name="area_selection_tooltip">Selecionar texto por área (ou segure o botão da S Pen e arraste)</string>
+    <string name="area_selection_empty">Nenhum texto encontrado na área selecionada.</string>
 </resources>

@@ -129,6 +129,27 @@ internal fun ReaderTopBar(
             }
 
             Spacer(modifier = Modifier.weight(1f))
+            if (viewState.fileType == ReaderFileType.PDF && !viewState.readingModeEnabled) {
+                TooltipBox(
+                    positionProvider = rememberTooltipPositionProvider(
+                        TooltipAnchorPosition.Below,
+                        4.dp
+                    ),
+                    tooltip = {
+                        PlainTooltip() {
+                            Text(safeStringResource(Strings.area_selection_tooltip))
+                        }
+                    },
+                    state = rememberTooltipState()
+                ) {
+                    IconWithPaddingM3(
+                        unselectedDrawableRes = Drawables.text_select_area,
+                        selectedDrawableRes = Drawables.text_select_area_filled,
+                        onToggle = viewModel::toggleAreaSelection,
+                        isSelected = viewState.areaSelectionArmed
+                    )
+                }
+            }
             TooltipBox(
                 positionProvider = rememberTooltipPositionProvider(
                     TooltipAnchorPosition.Below,

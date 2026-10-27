@@ -1,13 +1,16 @@
 package org.zotero.android.screens.reader.web
 
+import android.graphics.RectF
 import android.webkit.WebMessage
 import android.webkit.WebView
 import com.google.gson.Gson
 import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.scopes.ViewModelScoped
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.zotero.android.architecture.Defaults
@@ -494,6 +497,40 @@ class ReaderWebCallChainExecutor @Inject constructor(
             Timber.w(e, "ReaderWebCallChainExecutor: can't parse selection context")
             null
         }
+    }
+
+    /**
+     * Returns the text selection params for the PDF text inside [rect] (WebView pixels), or null.
+     */
+    suspend fun getTextInArea(rect: RectF): JsonObject? {
+        val javascript = ReaderAreaTextExtractor.script(rect.left, rect.top, rect.right, rect.bottom)
+        // The page text may still be loading, the script asks to retry in that case.
+        repeat(5) {
+            val result = suspendCancellableCoroutine { cont ->
+                readerWebViewHandler.evaluateJavascript(javascript) {
+                    cont.resume(it)
+                }
+            }
+            val json = try {
+                JsonParser.parseString(result)
+            } catch (e: Exception) {
+                Timber.w(e, "ReaderWebCallChainExecutor: can't parse area text")
+                return null
+            }
+            if (!json.isJsonObject) {
+                return null
+            }
+            val obj = json.asJsonObject
+            when {
+                obj.has("annotation") -> return obj
+                obj.has("retry") -> delay(300)
+                else -> {
+                    Timber.i("ReaderWebCallChainExecutor: no area text, ${obj["error"]}")
+                    return null
+                }
+            }
+        }
+        return null
     }
 
     suspend fun deselectText() {

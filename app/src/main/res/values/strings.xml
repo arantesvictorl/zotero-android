@@ -171,4 +171,6 @@
     <string name="update_no_release">No build was published on GitHub yet.</string>
     <string name="update_error">Couldn’t check for updates: %1$s</string>
     <string name="update_hint">Builds come from the debug-latest pre-release of this fork, published by GitHub Actions on every push. Your library and settings are kept when updating.</string>
+    <string name="area_selection_tooltip">Select text by area (or hold the S Pen button and drag)</string>
+    <string name="area_selection_empty">No text found in the selected area.</string>
 </resources>
