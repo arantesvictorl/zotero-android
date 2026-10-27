@@ -2767,12 +2767,18 @@ class ReaderViewModel @Inject constructor(
         setAreaSelectionArmed(false)
         viewModelScope.launch {
             val params = readerWebCallChainExecutor.getTextInArea(rect)
-            val text = params?.getAsJsonObject("annotation")
+            val text = params.getAsJsonObject("annotation")
                 ?.get("text")
                 ?.takeIf { it.isJsonPrimitive }
                 ?.asString
-            if (params == null || text.isNullOrBlank()) {
-                Toast.makeText(context, Strings.area_selection_empty, Toast.LENGTH_SHORT).show()
+            if (text.isNullOrBlank()) {
+                val error = params.get("error")?.takeIf { it.isJsonPrimitive }?.asString
+                val message = if (error == null || error == "empty") {
+                    context.getString(Strings.area_selection_empty)
+                } else {
+                    context.getString(Strings.area_selection_failed, error)
+                }
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                 return@launch
             }
             openAssistSheet(requestedTab = lastAssistTab, text = text, selectionParams = params)

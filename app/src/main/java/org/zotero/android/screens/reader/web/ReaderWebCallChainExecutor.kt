@@ -435,7 +435,9 @@ class ReaderWebCallChainExecutor @Inject constructor(
         val javascript = """
             (function(selected, pageIndex, before, after) {
                 try {
-                    var view = window._view;
+                    // window._view is the reader's View wrapper, the PDF/EPUB/HTML view is inside it.
+                    var wrapper = window._view;
+                    var view = wrapper && (wrapper._pdfPages ? wrapper : (wrapper._view || wrapper));
                     if (!view) return null;
                     var normalize = function(s) { return (s || '').replace(/\s+/g, ' ').trim(); };
                     var text = '';
@@ -500,9 +502,10 @@ class ReaderWebCallChainExecutor @Inject constructor(
     }
 
     /**
-     * Returns the text selection params for the PDF text inside [rect] (WebView pixels), or null.
+     * Returns the text selection params (`{ annotation: ... }`) for the PDF text inside [rect]
+     * (WebView pixels), or `{ error: "..." }` explaining why there's none.
      */
-    suspend fun getTextInArea(rect: RectF): JsonObject? {
+    suspend fun getTextInArea(rect: RectF): JsonObject {
         val javascript = ReaderAreaTextExtractor.script(rect.left, rect.top, rect.right, rect.bottom)
         // The page text may still be loading, the script asks to retry in that case.
         repeat(5) {
@@ -515,10 +518,10 @@ class ReaderWebCallChainExecutor @Inject constructor(
                 JsonParser.parseString(result)
             } catch (e: Exception) {
                 Timber.w(e, "ReaderWebCallChainExecutor: can't parse area text")
-                return null
+                return areaError("invalid result")
             }
             if (!json.isJsonObject) {
-                return null
+                return areaError("no result")
             }
             val obj = json.asJsonObject
             when {
@@ -526,11 +529,15 @@ class ReaderWebCallChainExecutor @Inject constructor(
                 obj.has("retry") -> delay(300)
                 else -> {
                     Timber.i("ReaderWebCallChainExecutor: no area text, ${obj["error"]}")
-                    return null
+                    return obj
                 }
             }
         }
-        return null
+        return areaError("page text not loaded")
+    }
+
+    private fun areaError(message: String): JsonObject {
+        return JsonObject().apply { addProperty("error", message) }
     }
 
     suspend fun deselectText() {

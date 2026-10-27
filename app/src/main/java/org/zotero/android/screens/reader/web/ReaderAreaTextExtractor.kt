@@ -16,7 +16,9 @@ object ReaderAreaTextExtractor {
     fun script(left: Float, top: Float, right: Float, bottom: Float): String = """
         (function(left, top, right, bottom) {
             try {
-                var view = window._view;
+                // window._view is the reader's View wrapper, the PDF view is inside it.
+                var wrapper = window._view;
+                var view = wrapper && (wrapper._pdfPages ? wrapper : wrapper._view);
                 if (!view || !view._pdfPages || !view._iframe || !view._iframeWindow) {
                     return { error: 'unsupported' };
                 }
